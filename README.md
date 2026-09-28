@@ -27,6 +27,14 @@ docs/      архитектура и запуск с iPhone
 Для отдельной установки без ИИ-помощника подготовлены PWA для iPhone и профиль
 APK для Android: [инструкция](docs/pwa-and-android.md).
 
+Быстрый повторный запуск Android-сборки из PowerShell:
+
+```powershell
+Set-Location 'C:\Users\User\Documents\ChatGPT\консультант плюс ( с ИИ)\mobile'
+npx eas-cli@latest login
+npx eas-cli@latest build --platform android --profile preview
+```
+
 ## Первый запуск после получения проекта
 
 ```powershell
