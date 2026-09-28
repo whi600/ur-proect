@@ -1,0 +1,7 @@
+{
+  "name": "ur-proect",
+  "private": true,
+  "scripts": {
+    "build:pwa": "npm --prefix mobile ci && npm --prefix mobile run build:pwa"
+  }
+}
