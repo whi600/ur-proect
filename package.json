@@ -2,6 +2,7 @@
   "name": "ur-proect",
   "private": true,
   "scripts": {
+    "build": "npm run build:pwa",
     "build:pwa": "npm --prefix mobile ci && npm --prefix mobile run build:pwa"
   }
 }
