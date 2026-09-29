@@ -19,6 +19,7 @@
   },
   "devDependencies": {
     "@types/react": "~19.2.2",
+    "eas-cli": "24.8.0",
     "eslint": "^9.39.5",
     "eslint-config-expo": "~57.0.2",
     "eslint-config-prettier": "^10.1.8",
@@ -33,6 +34,8 @@
     "start:lan": "expo start --lan",
     "start:tunnel": "expo start --tunnel",
     "android": "expo start --android",
+    "android:configure": "eas build:configure --platform android",
+    "android:apk": "eas build --platform android --profile preview",
     "ios": "expo start --ios",
     "web": "expo start --web",
     "build:pwa": "expo export -p web && workbox generateSW workbox-config.cjs",

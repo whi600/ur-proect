@@ -3,15 +3,15 @@
   "short_name": "ПравоОрбита",
   "description": "Каталог правовых документов",
   "lang": "ru",
-  "start_url": ".",
-  "scope": ".",
+  "start_url": "/",
+  "scope": "/",
   "display": "standalone",
   "orientation": "portrait",
   "theme_color": "#F7F6F2",
   "background_color": "#F7F6F2",
   "icons": [
     {
-      "src": "./pwa-icon.png",
+      "src": "/pwa-icon.png",
       "sizes": "1024x1024",
       "type": "image/png",
       "purpose": "any maskable"

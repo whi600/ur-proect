@@ -18,6 +18,9 @@ yarn-debug.*
 yarn-error.*
 .DS_Store
 *.pem
+.env
+.env.*
+!.env.example
 .env*.local
 *.tsbuildinfo
 /ios

@@ -35,7 +35,7 @@ class DocumentSummary(BaseModel):
 
 class DocumentDetail(DocumentSummary):
     content: str
-    fragments: list["DocumentFragment"] = []
+    fragments: list[DocumentFragment] = []
     fragments_total: int | None = None
 
 

@@ -31,8 +31,9 @@ APK для Android: [инструкция](docs/pwa-and-android.md).
 
 ```powershell
 Set-Location 'C:\Users\User\Documents\ChatGPT\консультант плюс ( с ИИ)\mobile'
-npx eas-cli@latest login
-npx eas-cli@latest build --platform android --profile preview
+npx eas login
+npm run android:configure # только перед первой сборкой, после входа в Expo
+npm run android:apk
 ```
 
 ## Первый запуск после получения проекта

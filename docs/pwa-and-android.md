@@ -40,18 +40,53 @@ SQLite-пакет текстов используется только нати�
 Подключать публичный API, переносить в web формат весь текстовый пакет или
 публиковать правовые данные следует отдельным решением.
 
+### Публикация в подключённый Cloudflare Worker
+
+Текущий Cloudflare-проект использует **Workers Builds**, а не Cloudflare Pages.
+В корне репозитория добавлен `wrangler.jsonc`: он публикует `mobile/dist/` как
+статические файлы и возвращает `index.html` для внутренних маршрутов PWA.
+
+В настройках Worker укажите:
+
+```text
+Root directory: пусто
+Build command: npm run build
+Deploy command: npm run deploy:cloudflare
+Preview command: npx wrangler preview
+```
+
+Имя Worker в Cloudflare должно быть `ur-proect`, как в `wrangler.jsonc`. Если
+в панели Cloudflare уже создан Worker с другим именем, замените только поле
+`name` в этом файле на его точное имя до следующего деплоя.
+
+Локально перед публикацией можно выполнить безопасную проверку без отправки
+файлов в Cloudflare:
+
+```powershell
+Set-Location 'C:\Users\User\Documents\ChatGPT\консультант плюс ( с ИИ)'
+npm run build
+npm run verify:cloudflare
+```
+
 ## Android: независимый APK
 
 Один и тот же Expo-код уже поддерживает Android. В `mobile/eas.json` добавлен
 профиль `preview`, который создаёт устанавливаемый APK без публикации в Google
 Play и без постоянно работающего ноутбука.
 
-Перед первой сборкой нужны только бесплатный Expo-аккаунт и вход в него:
+Перед первой сборкой нужны только бесплатный Expo-аккаунт и вход в него. Вход
+и первичная привязка проекта создаются один раз:
 
 ```powershell
 Set-Location 'C:\Users\User\Documents\ChatGPT\консультант плюс ( с ИИ)\mobile'
-npx eas-cli@latest login
-npx eas-cli@latest build --platform android --profile preview
+npx eas login
+npm run android:configure
+```
+
+После этого для создания нового APK используется одна команда:
+
+```powershell
+npm run android:apk
 ```
 
 После завершения Expo даст ссылку на APK. Откройте её на Android-устройстве,

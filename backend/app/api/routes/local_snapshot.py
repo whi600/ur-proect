@@ -4,6 +4,7 @@ import sqlite3
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
+from typing import cast
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
@@ -97,7 +98,9 @@ def _snapshot_notice(article_count: int) -> str:
     )
 
 
-def _matching_rows(connection: sqlite3.Connection, query: str | None, limit: int) -> list[sqlite3.Row]:
+def _matching_rows(
+    connection: sqlite3.Connection, query: str | None, limit: int
+) -> list[sqlite3.Row]:
     rows = connection.execute(
         "SELECT * FROM documents ORDER BY category, title COLLATE NOCASE LIMIT ?", (MAX_LIMIT,)
     ).fetchall()
@@ -105,16 +108,20 @@ def _matching_rows(connection: sqlite3.Connection, query: str | None, limit: int
         return rows[:limit]
 
     def matches_metadata(row: sqlite3.Row) -> bool:
-        haystack = " ".join(
-            str(value or "")
-            for value in (
-                row["title"],
-                row["document_type"],
-                row["document_number"],
-                row["category"],
-                row["search_terms"],
+        haystack = (
+            " ".join(
+                str(value or "")
+                for value in (
+                    row["title"],
+                    row["document_type"],
+                    row["document_number"],
+                    row["category"],
+                    row["search_terms"],
+                )
             )
-        ).casefold().replace("ё", "е")
+            .casefold()
+            .replace("ё", "е")
+        )
         return all(token in haystack for token in tokens)
 
     matched: dict[str, sqlite3.Row] = {row["id"]: row for row in rows if matches_metadata(row)}
@@ -156,7 +163,7 @@ def _document_or_404(connection: sqlite3.Connection, document_id: str) -> sqlite
     row = connection.execute("SELECT * FROM documents WHERE id = ?", (document_id,)).fetchone()
     if row is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Документ не найден.")
-    return row
+    return cast(sqlite3.Row, row)
 
 
 def _fragment_page(
