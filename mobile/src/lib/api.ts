@@ -248,7 +248,6 @@ export async function askAssistant(payload: {
   question: string;
   as_of_date?: string;
   circumstances?: string;
-  accessCode: string;
 }): Promise<LoadResult<AssistantAnswer | undefined>> {
   const endpoint =
     Platform.OS === 'web'
@@ -263,7 +262,6 @@ export async function askAssistant(payload: {
       headers: {
         Accept: 'application/json',
         'Content-Type': 'application/json',
-        'X-Assistant-Access': payload.accessCode,
       },
       body: JSON.stringify({
         question: payload.question,

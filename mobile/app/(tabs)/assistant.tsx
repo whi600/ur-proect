@@ -21,8 +21,6 @@ export default function AssistantScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const [question, setQuestion] = useState('');
-  const [accessCode, setAccessCode] = useState('');
-  const [hasAuthenticated, setHasAuthenticated] = useState(false);
   const [submittedQuestion, setSubmittedQuestion] = useState<string>();
   const [answer, setAnswer] = useState<AssistantAnswer>();
   const [notice, setNotice] = useState<string>();
@@ -35,11 +33,6 @@ export default function AssistantScreen() {
       setValidationError('Введите вопрос хотя бы из трёх символов.');
       return;
     }
-    if (!accessCode.trim()) {
-      setValidationError('Сначала введите код доступа к помощнику. Это не API-ключ Polza AI.');
-      return;
-    }
-
     setValidationError(undefined);
     setNotice(undefined);
     setAnswer(undefined);
@@ -47,15 +40,11 @@ export default function AssistantScreen() {
     setIsSubmitting(true);
     const result = await askAssistant({
       question: normalizedQuestion,
-      accessCode: accessCode.trim(),
     });
     setAnswer(result.data);
     setNotice(result.notice);
     if (result.data) {
-      setHasAuthenticated(true);
       setQuestion('');
-    } else if (result.notice?.includes('код доступа')) {
-      setHasAuthenticated(false);
     }
     setIsSubmitting(false);
   };
@@ -72,24 +61,6 @@ export default function AssistantScreen() {
             <Text style={styles.title}>Помощник</Text>
             <Text style={styles.subtitle}>Задайте вопрос по документам</Text>
           </View>
-
-          {!hasAuthenticated ? (
-            <View style={styles.accessPanel}>
-              <Text style={styles.accessLabel}>Код доступа к помощнику</Text>
-              <TextInput
-                accessibilityLabel="Код доступа к помощнику"
-                autoCapitalize="none"
-                autoCorrect={false}
-                onChangeText={setAccessCode}
-                placeholder="Введите личный код"
-                placeholderTextColor={colors.textMuted}
-                secureTextEntry
-                style={styles.accessInput}
-                value={accessCode}
-              />
-              <Text style={styles.accessHint}>Ключ Polza AI сюда вводить нельзя.</Text>
-            </View>
-          ) : null}
 
           <ScrollView
             automaticallyAdjustKeyboardInsets
@@ -178,24 +149,6 @@ const styles = StyleSheet.create({
   header: { gap: 2, paddingBottom: spacing.md },
   title: { color: colors.text, fontSize: 26, fontWeight: '800' },
   subtitle: { color: colors.textMuted, fontSize: 14 },
-  accessPanel: {
-    backgroundColor: colors.surface,
-    borderColor: colors.border,
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    gap: spacing.xs,
-    padding: spacing.md,
-  },
-  accessLabel: { color: colors.text, fontSize: 14, fontWeight: '700' },
-  accessInput: {
-    borderColor: colors.border,
-    borderRadius: radius.sm,
-    borderWidth: 1,
-    color: colors.text,
-    fontSize: 16,
-    padding: spacing.sm,
-  },
-  accessHint: { color: colors.textMuted, fontSize: 12 },
   messages: {
     flexGrow: 1,
     gap: spacing.md,

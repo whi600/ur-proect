@@ -115,7 +115,7 @@ function citation(document) {
 export async function handleRequest(request, env, fetchImpl = fetch) {
   const pathname = new URL(request.url).pathname;
   if (pathname === '/api/assistant/status' && request.method === 'GET') {
-    return json({ configured: Boolean(env.POLZA_API_KEY && env.ASSISTANT_ACCESS_TOKEN) });
+    return json({ configured: Boolean(env.POLZA_API_KEY && env.AI_RATE_LIMIT) });
   }
   if (pathname !== '/api/assistant/ask') {
     return pathname.startsWith('/api/')
@@ -123,11 +123,8 @@ export async function handleRequest(request, env, fetchImpl = fetch) {
       : env.ASSETS.fetch(request);
   }
   if (request.method !== 'POST') return json({ error: 'Нужен POST-запрос.' }, 405);
-  if (!env.POLZA_API_KEY || !env.ASSISTANT_ACCESS_TOKEN || !env.AI_RATE_LIMIT) {
+  if (!env.POLZA_API_KEY || !env.AI_RATE_LIMIT) {
     return json({ error: 'ИИ пока не настроен на сервере.' }, 503);
-  }
-  if (request.headers.get('X-Assistant-Access') !== env.ASSISTANT_ACCESS_TOKEN) {
-    return json({ error: 'Неверный код доступа к помощнику.' }, 401);
   }
   const { success } = await env.AI_RATE_LIMIT.limit({
     key: request.headers.get('CF-Connecting-IP') ?? 'unknown',

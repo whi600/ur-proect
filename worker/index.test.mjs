@@ -5,10 +5,10 @@ import { handleRequest, rankCatalog } from './index.mjs';
 
 const endpoint = 'https://example.workers.dev/api/assistant/ask';
 
-function ask(question = 'Какие права есть у покупателя при возврате товара?', code = 'private-code') {
+function ask(question = 'Какие права есть у покупателя при возврате товара?') {
   return new Request(endpoint, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'X-Assistant-Access': code },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ question }),
   });
 }
@@ -16,7 +16,6 @@ function ask(question = 'Какие права есть у покупателя 
 function environment(allowed = true) {
   return {
     POLZA_API_KEY: 'provider-secret',
-    ASSISTANT_ACCESS_TOKEN: 'private-code',
     AI_RATE_LIMIT: { limit: async () => ({ success: allowed }) },
   };
 }
@@ -27,14 +26,22 @@ test('catalog ranking selects a relevant document, but only metadata', () => {
   assert.equal(matches[0]?.content_state, 'offline_metadata');
 });
 
-test('worker refuses paid calls without server secrets or user access code', async () => {
+test('worker refuses paid calls without server key and a rate limiter', async () => {
   const noSecrets = await handleRequest(ask(), {}, () => { throw Error('must not call provider'); });
   assert.equal(noSecrets.status, 503);
 
-  const wrongCode = await handleRequest(ask('Вопрос о покупке товара', 'wrong'), environment(), () => {
+  const noLimit = await handleRequest(ask(), { POLZA_API_KEY: 'provider-secret' }, () => {
     throw Error('must not call provider');
   });
-  assert.equal(wrongCode.status, 401);
+  assert.equal(noLimit.status, 503);
+});
+
+test('status requires only the server key and rate limiter', async () => {
+  const statusRequest = new Request('https://example.workers.dev/api/assistant/status');
+  const off = await handleRequest(statusRequest, {});
+  const on = await handleRequest(statusRequest, environment());
+  assert.deepEqual(await off.json(), { configured: false });
+  assert.deepEqual(await on.json(), { configured: true });
 });
 
 test('worker validates and rate limits requests before calling model', async () => {
@@ -70,7 +77,7 @@ test('worker sends bounded context to model and labels returned document cards',
   assert.equal(result.mode, 'live');
   assert.equal(result.sources[0].document_id, 'ru-consumer-protection-law');
   assert.match(result.sources[0].fragment_label, /не статья/);
-  assert.doesNotMatch(JSON.stringify(result), /provider-secret|private-code/);
+  assert.doesNotMatch(JSON.stringify(result), /provider-secret/);
 });
 
 test('provider failures do not leak its response or server secrets', async () => {
