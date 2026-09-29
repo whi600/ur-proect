@@ -5,6 +5,8 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { FavoritesProvider } from '../src/context/FavoritesContext';
 import { colors } from '../src/theme';
 
+// Expo Router требует общий файл маршрута даже при наличии платформенной
+// реализации _layout.native.tsx. Для веба используется этот простой макет.
 export default function RootLayout() {
   return (
     <SafeAreaProvider>
