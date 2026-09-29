@@ -1,0 +1,3 @@
+# Generated legal pages are byte-for-byte checked against the pinned SQLite source.
+mobile/public/legal-texts/** -text
+mobile/src/data/ru-web-texts-manifest.json -text

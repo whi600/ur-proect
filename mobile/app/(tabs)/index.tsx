@@ -16,6 +16,10 @@ import { useRouter } from 'expo-router';
 import { NoticeCard } from '../../src/components/Ui';
 import { getOfflineCatalog } from '../../src/data/offlineCatalog';
 import { checkApi, loadDocuments, type ApiStatus } from '../../src/lib/api';
+import {
+  downloadAllSourceSnapshotPages,
+  SOURCE_SNAPSHOT_WEB_PAGE_COUNT,
+} from '../../src/lib/sourceSnapshotCatalog';
 import { colors, radius, spacing } from '../../src/theme';
 import type { DocumentSummary } from '../../src/types/legal';
 
@@ -29,6 +33,8 @@ export default function HomeScreen() {
   const [documents, setDocuments] = useState<DocumentSummary[]>(getOfflineCatalog);
   const [notice, setNotice] = useState<string>();
   const [refreshing, setRefreshing] = useState(true);
+  const [downloadingTexts, setDownloadingTexts] = useState(false);
+  const [downloadProgress, setDownloadProgress] = useState<string>();
 
   const refresh = useCallback(async () => {
     setRefreshing(true);
@@ -57,6 +63,26 @@ export default function HomeScreen() {
 
   const openSearch = () => {
     router.push({ pathname: '/search', params: { q: query.trim() } });
+  };
+  const downloadTexts = async () => {
+    setDownloadingTexts(true);
+    setDownloadProgress('Подготовка офлайн-библиотеки…');
+    try {
+      await downloadAllSourceSnapshotPages((done, total) => {
+        if (done % 12 === 0 || done === total) {
+          setDownloadProgress(`Сохранено ${done} из ${total} частей текста`);
+        }
+      });
+      setDownloadProgress('Все тексты сохранены для чтения без сети на этом устройстве.');
+    } catch (error) {
+      setDownloadProgress(
+        error instanceof Error
+          ? error.message
+          : 'Не удалось сохранить библиотеку. Повторите позже.',
+      );
+    } finally {
+      setDownloadingTexts(false);
+    }
   };
   const codeCount = documents.filter((document) => document.legal_level === 'code').length;
   const lawCount = documents.filter(
@@ -161,7 +187,7 @@ export default function HomeScreen() {
           </View>
 
           <View style={styles.catalogCards}>
-            {catalogItems(hasSourceSnapshot).map((item) => (
+            {catalogItems(hasSourceSnapshot, Platform.OS === 'web').map((item) => (
               <Pressable
                 accessibilityRole="button"
                 accessibilityLabel={`Открыть раздел: ${item.title}`}
@@ -187,6 +213,28 @@ export default function HomeScreen() {
             ))}
           </View>
 
+          {Platform.OS === 'web' && hasSourceSnapshot ? (
+            <View style={styles.offlineCard}>
+              <Text style={styles.offlineTitle}>Тексты без интернета</Text>
+              <Text style={styles.offlineText}>
+                Каталог открывается сразу. Статьи загружаются частями при чтении. Для доступа ко
+                всем текстам без сети сохраните библиотеку отдельно (около 55 МБ,
+                {` ${SOURCE_SNAPSHOT_WEB_PAGE_COUNT}`} частей).
+              </Text>
+              <Pressable
+                accessibilityRole="button"
+                disabled={downloadingTexts}
+                onPress={() => void downloadTexts()}
+                style={({ pressed }) => [styles.offlineButton, pressed && styles.pressed]}
+              >
+                <Text style={styles.offlineButtonText}>
+                  {downloadingTexts ? 'Сохраняем…' : 'Сохранить тексты для офлайн'}
+                </Text>
+              </Pressable>
+              {downloadProgress ? <Text style={styles.offlineText}>{downloadProgress}</Text> : null}
+            </View>
+          ) : null}
+
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="Открыть ИИ-помощника"
@@ -194,7 +242,7 @@ export default function HomeScreen() {
             style={({ pressed }) => [styles.assistantCard, pressed && styles.pressed]}
           >
             <View style={styles.assistantTopline}>
-              <Text style={styles.assistantKicker}>ИИ-ПОМОЩНИК · ДЕМО</Text>
+              <Text style={styles.assistantKicker}>ИИ-ПОМОЩНИК</Text>
               <Text style={styles.assistantArrow}>→</Text>
             </View>
             <Text style={styles.assistantTitle}>Не знаете, с чего начать?</Text>
@@ -219,7 +267,9 @@ export default function HomeScreen() {
             title="Что хранится на устройстве"
             message={
               hasSourceSnapshot
-                ? `В библиотеке доступны ${sourceSnapshotCount} текстов. Реквизиты и источник указаны в карточке каждого документа.`
+                ? Platform.OS === 'web'
+                  ? `В библиотеке доступны ${sourceSnapshotCount} текстов. Для чтения без сети сохраните их кнопкой выше; браузер может удалить офлайн-данные при нехватке памяти.`
+                  : `В библиотеке доступны ${sourceSnapshotCount} текстов. Реквизиты и источник указаны в карточке каждого документа.`
                 : 'В каталоге доступны реквизиты основных актов.'
             }
           />
@@ -245,13 +295,15 @@ type CatalogItem =
       query: string;
     };
 
-function catalogItems(hasSourceSnapshot: boolean): CatalogItem[] {
+function catalogItems(hasSourceSnapshot: boolean, isWeb: boolean): CatalogItem[] {
   return [
     {
       number: '01',
       title: 'Конституция РФ',
       description: hasSourceSnapshot
-        ? 'Основной закон: текст доступен локально, без подключения к сети.'
+        ? isWeb
+          ? 'Основной закон: текст загружается частями и может быть сохранён для офлайн.'
+          : 'Основной закон: текст доступен локально, без подключения к сети.'
         : 'Основной закон: локально сохранены реквизиты; текст откроется в нативном пакете.',
       kind: 'document',
       documentId: 'ru-constitution-source',
@@ -386,6 +438,25 @@ const styles = StyleSheet.create({
   catalogCardTitle: { color: colors.text, fontSize: 16, fontWeight: '800' },
   catalogCardText: { color: colors.textMuted, fontSize: 13, lineHeight: 18 },
   catalogArrow: { color: colors.primary, fontSize: 22, fontWeight: '500' },
+  offlineCard: {
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    gap: spacing.sm,
+    padding: spacing.md,
+  },
+  offlineTitle: { color: colors.text, fontSize: 16, fontWeight: '800' },
+  offlineText: { color: colors.textMuted, fontSize: 13, lineHeight: 19 },
+  offlineButton: {
+    alignItems: 'center',
+    backgroundColor: colors.primary,
+    borderRadius: radius.sm,
+    minHeight: 44,
+    justifyContent: 'center',
+    paddingHorizontal: spacing.md,
+  },
+  offlineButtonText: { color: colors.surface, fontSize: 14, fontWeight: '800' },
   assistantCard: {
     backgroundColor: colors.surface,
     borderColor: colors.assistantBorder,

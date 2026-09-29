@@ -16,6 +16,13 @@ const MAX_FRAGMENT_PAGE_SIZE = 48;
 const MAX_SEARCH_RESULTS = 80;
 
 export const isNativeSourceSnapshotSupported = Platform.OS !== 'web';
+export const SOURCE_SNAPSHOT_WEB_PAGE_COUNT = 0;
+
+export async function downloadAllSourceSnapshotPages(
+  _onProgress: (done: number, total: number) => void,
+): Promise<void> {
+  throw new Error('В нативном приложении тексты уже включены в локальный пакет.');
+}
 
 export type SourceSnapshotFragmentPage = {
   fragments: DocumentFragment[];

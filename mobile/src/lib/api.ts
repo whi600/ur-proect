@@ -27,14 +27,13 @@ const configuredUrl =
     ? (process.env.EXPO_PUBLIC_API_BASE_URL_WEB?.trim() ??
       process.env.EXPO_PUBLIC_API_BASE_URL?.trim())
     : process.env.EXPO_PUBLIC_API_BASE_URL?.trim()) ?? '';
-// A developer's localhost address must never become a dependency of the
-// published PWA (where localhost would point to each visitor's device).
+// The published PWA reads static legal pages, not the development FastAPI.
+// In particular, the developer's LAN/localhost address must not be embedded.
 const isRemoteWeb =
   Platform.OS === 'web' &&
   typeof window !== 'undefined' &&
   !['localhost', '127.0.0.1'].includes(window.location.hostname);
-const isLocalApiAddress = /^https?:\/\/(?:localhost|127\.0\.0\.1)(?::|\/|$)/i.test(configuredUrl);
-const API_BASE_URL = isRemoteWeb && isLocalApiAddress ? '' : configuredUrl.replace(/\/$/, '');
+const API_BASE_URL = isRemoteWeb ? '' : configuredUrl.replace(/\/$/, '');
 const REQUEST_TIMEOUT_MS = 7_000;
 
 export const isApiConfigured = API_BASE_URL.length > 0;
@@ -111,11 +110,6 @@ function mergeWithMetadata(
   return [...byId.values()];
 }
 
-async function loadServerSnapshotDocuments(query = ''): Promise<DocumentSummary[]> {
-  const params = query.trim() ? `?q=${encodeURIComponent(query.trim())}` : '';
-  return request<DocumentSummary[]>(`/local-snapshot/documents${params}`);
-}
-
 export async function checkApi(): Promise<ApiStatus> {
   if (!isApiConfigured) {
     return {
@@ -137,12 +131,14 @@ export async function checkApi(): Promise<ApiStatus> {
 
 export async function loadDocuments(query = ''): Promise<LoadResult<DocumentSummary[]>> {
   const metadataDocuments = searchOfflineCatalog(query);
-  if (Platform.OS === 'web' && isApiConfigured) {
+  if (Platform.OS === 'web') {
     try {
-      const sourceSnapshotDocuments = await loadServerSnapshotDocuments(query);
+      const sourceSnapshotDocuments = query.trim()
+        ? await searchSourceSnapshotDocuments(query)
+        : await listSourceSnapshotDocuments();
       return {
         data: mergeWithMetadata(sourceSnapshotDocuments, metadataDocuments),
-        origin: 'api',
+        origin: 'offline-catalog',
       };
     } catch (error) {
       return {
@@ -186,12 +182,10 @@ export async function searchDocuments(query: string): Promise<LoadResult<SearchR
 
 export async function loadDocument(id: string): Promise<LoadResult<DocumentDetail | undefined>> {
   let snapshotNotice: string | undefined;
-  if (Platform.OS === 'web' && isApiConfigured) {
+  if (Platform.OS === 'web') {
     try {
-      const data = await request<DocumentDetail>(
-        `/local-snapshot/documents/${encodeURIComponent(id)}`,
-      );
-      return { data, origin: 'api' };
+      const data = await loadSourceSnapshotDocument(id);
+      if (data) return { data, origin: 'offline-catalog' };
     } catch (error) {
       snapshotNotice = sourceSnapshotFailureNotice(error);
     }
@@ -241,10 +235,8 @@ export async function loadMoreDocumentFragments(
   id: string,
   offset: number,
 ): Promise<SourceSnapshotFragmentPage | undefined> {
-  if (Platform.OS === 'web' && isApiConfigured) {
-    return request<SourceSnapshotFragmentPage>(
-      `/local-snapshot/documents/${encodeURIComponent(id)}/fragments?offset=${offset}`,
-    );
+  if (Platform.OS === 'web') {
+    return loadSourceSnapshotFragmentPage(id, offset);
   }
   if (!isNativeSourceSnapshotSupported) {
     return undefined;
