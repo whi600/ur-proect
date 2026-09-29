@@ -10,6 +10,7 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useRouter } from 'expo-router';
 
 import { LoadingBlock, NoticeCard } from '../../src/components/Ui';
 import { askAssistant } from '../../src/lib/api';
@@ -18,7 +19,10 @@ import type { AssistantAnswer } from '../../src/types/legal';
 
 export default function AssistantScreen() {
   const insets = useSafeAreaInsets();
+  const router = useRouter();
   const [question, setQuestion] = useState('');
+  const [accessCode, setAccessCode] = useState('');
+  const [hasAuthenticated, setHasAuthenticated] = useState(false);
   const [submittedQuestion, setSubmittedQuestion] = useState<string>();
   const [answer, setAnswer] = useState<AssistantAnswer>();
   const [notice, setNotice] = useState<string>();
@@ -31,15 +35,28 @@ export default function AssistantScreen() {
       setValidationError('Введите вопрос хотя бы из трёх символов.');
       return;
     }
+    if (!accessCode.trim()) {
+      setValidationError('Сначала введите код доступа к помощнику. Это не API-ключ Polza AI.');
+      return;
+    }
 
     setValidationError(undefined);
     setNotice(undefined);
+    setAnswer(undefined);
     setSubmittedQuestion(normalizedQuestion);
-    setQuestion('');
     setIsSubmitting(true);
-    const result = await askAssistant({ question: normalizedQuestion });
+    const result = await askAssistant({
+      question: normalizedQuestion,
+      accessCode: accessCode.trim(),
+    });
     setAnswer(result.data);
     setNotice(result.notice);
+    if (result.data) {
+      setHasAuthenticated(true);
+      setQuestion('');
+    } else if (result.notice?.includes('код доступа')) {
+      setHasAuthenticated(false);
+    }
     setIsSubmitting(false);
   };
 
@@ -55,6 +72,24 @@ export default function AssistantScreen() {
             <Text style={styles.title}>Помощник</Text>
             <Text style={styles.subtitle}>Задайте вопрос по документам</Text>
           </View>
+
+          {!hasAuthenticated ? (
+            <View style={styles.accessPanel}>
+              <Text style={styles.accessLabel}>Код доступа к помощнику</Text>
+              <TextInput
+                accessibilityLabel="Код доступа к помощнику"
+                autoCapitalize="none"
+                autoCorrect={false}
+                onChangeText={setAccessCode}
+                placeholder="Введите личный код"
+                placeholderTextColor={colors.textMuted}
+                secureTextEntry
+                style={styles.accessInput}
+                value={accessCode}
+              />
+              <Text style={styles.accessHint}>Ключ Polza AI сюда вводить нельзя.</Text>
+            </View>
+          ) : null}
 
           <ScrollView
             automaticallyAdjustKeyboardInsets
@@ -78,6 +113,25 @@ export default function AssistantScreen() {
             {answer ? (
               <View style={[styles.message, styles.assistantMessage]}>
                 <Text style={styles.answerText}>{answer.answer}</Text>
+                {answer.sources.length > 0 ? (
+                  <View style={styles.sources}>
+                    <Text style={styles.sourcesTitle}>Возможно связанные документы</Text>
+                    {answer.sources.map((source) => (
+                      <Pressable
+                        accessibilityRole="button"
+                        key={source.document_id}
+                        onPress={() =>
+                          router.push({
+                            pathname: '/document/[id]',
+                            params: { id: source.document_id },
+                          })
+                        }
+                      >
+                        <Text style={styles.sourceLink}>{source.title} →</Text>
+                      </Pressable>
+                    ))}
+                  </View>
+                ) : null}
                 <Text style={styles.answerNote}>{answer.disclaimer}</Text>
               </View>
             ) : null}
@@ -124,6 +178,24 @@ const styles = StyleSheet.create({
   header: { gap: 2, paddingBottom: spacing.md },
   title: { color: colors.text, fontSize: 26, fontWeight: '800' },
   subtitle: { color: colors.textMuted, fontSize: 14 },
+  accessPanel: {
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    gap: spacing.xs,
+    padding: spacing.md,
+  },
+  accessLabel: { color: colors.text, fontSize: 14, fontWeight: '700' },
+  accessInput: {
+    borderColor: colors.border,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    color: colors.text,
+    fontSize: 16,
+    padding: spacing.sm,
+  },
+  accessHint: { color: colors.textMuted, fontSize: 12 },
   messages: {
     flexGrow: 1,
     gap: spacing.md,
@@ -142,6 +214,14 @@ const styles = StyleSheet.create({
   },
   userMessageText: { color: colors.surface, fontSize: 16, lineHeight: 23 },
   answerText: { color: colors.text, fontSize: 16, lineHeight: 24 },
+  sources: {
+    borderTopColor: colors.border,
+    borderTopWidth: 1,
+    gap: spacing.xs,
+    paddingTop: spacing.sm,
+  },
+  sourcesTitle: { color: colors.textMuted, fontSize: 13, fontWeight: '700' },
+  sourceLink: { color: colors.primary, fontSize: 14, lineHeight: 20 },
   answerNote: { color: colors.textMuted, fontSize: 12, lineHeight: 18 },
   validationError: {
     color: colors.danger,

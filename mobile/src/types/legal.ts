@@ -65,7 +65,7 @@ export interface AssistantCitation {
 }
 
 export interface AssistantAnswer {
-  mode: 'demo';
+  mode: 'demo' | 'live';
   answer: string;
   sources: AssistantCitation[];
   disclaimer: string;

@@ -1,6 +1,6 @@
 import { Platform } from 'react-native';
 
-import { findDemoDocument, localDemoAnswer } from '../data/demoDocuments';
+import { findDemoDocument } from '../data/demoDocuments';
 import { findOfflineCatalogDocument, searchOfflineCatalog } from '../data/offlineCatalog';
 import {
   isNativeSourceSnapshotSupported,
@@ -27,7 +27,14 @@ const configuredUrl =
     ? (process.env.EXPO_PUBLIC_API_BASE_URL_WEB?.trim() ??
       process.env.EXPO_PUBLIC_API_BASE_URL?.trim())
     : process.env.EXPO_PUBLIC_API_BASE_URL?.trim()) ?? '';
-const API_BASE_URL = configuredUrl?.replace(/\/$/, '') ?? '';
+// A developer's localhost address must never become a dependency of the
+// published PWA (where localhost would point to each visitor's device).
+const isRemoteWeb =
+  Platform.OS === 'web' &&
+  typeof window !== 'undefined' &&
+  !['localhost', '127.0.0.1'].includes(window.location.hostname);
+const isLocalApiAddress = /^https?:\/\/(?:localhost|127\.0\.0\.1)(?::|\/|$)/i.test(configuredUrl);
+const API_BASE_URL = isRemoteWeb && isLocalApiAddress ? '' : configuredUrl.replace(/\/$/, '');
 const REQUEST_TIMEOUT_MS = 7_000;
 
 export const isApiConfigured = API_BASE_URL.length > 0;
@@ -249,22 +256,52 @@ export async function askAssistant(payload: {
   question: string;
   as_of_date?: string;
   circumstances?: string;
-}): Promise<LoadResult<AssistantAnswer>> {
-  if (!isApiConfigured) {
-    return { data: localDemoAnswer(payload.question), origin: 'local-demo' };
-  }
-
+  accessCode: string;
+}): Promise<LoadResult<AssistantAnswer | undefined>> {
+  const endpoint =
+    Platform.OS === 'web'
+      ? process.env.EXPO_PUBLIC_ASSISTANT_API_URL_WEB?.trim() || '/api/assistant/ask'
+      : process.env.EXPO_PUBLIC_ASSISTANT_API_URL?.trim() ||
+        'https://ur-proect.gudronovandrej.workers.dev/api/assistant/ask';
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 35_000);
   try {
-    const data = await request<AssistantAnswer>('/assistant/ask', {
+    const response = await fetch(endpoint, {
       method: 'POST',
-      body: JSON.stringify(payload),
+      headers: {
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+        'X-Assistant-Access': payload.accessCode,
+      },
+      body: JSON.stringify({
+        question: payload.question,
+        as_of_date: payload.as_of_date,
+        circumstances: payload.circumstances,
+      }),
+      signal: controller.signal,
     });
+    const data = (await response.json()) as AssistantAnswer & { error?: string };
+    if (!response.ok) {
+      return {
+        data: undefined,
+        origin: 'api',
+        notice: data.error || `Помощник сейчас недоступен (ошибка ${response.status}).`,
+      };
+    }
+    if (data.mode !== 'live' || typeof data.answer !== 'string') {
+      return { data: undefined, origin: 'api', notice: 'Сервер вернул неожиданный ответ.' };
+    }
     return { data, origin: 'api' };
   } catch (error) {
     return {
-      data: localDemoAnswer(payload.question),
-      origin: 'local-demo',
-      notice: fallbackNotice(error),
+      data: undefined,
+      origin: 'api',
+      notice:
+        error instanceof Error && error.name === 'AbortError'
+          ? 'Помощник не ответил за 35 секунд.'
+          : 'Не удалось связаться с помощником. Проверьте интернет и адрес сервиса.',
     };
+  } finally {
+    clearTimeout(timeout);
   }
 }

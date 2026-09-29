@@ -5,7 +5,8 @@
     "build": "npm run build:pwa",
     "build:pwa": "npm --prefix mobile ci && npm --prefix mobile run build:pwa",
     "deploy:cloudflare": "wrangler deploy",
-    "verify:cloudflare": "wrangler deploy --dry-run"
+    "verify:cloudflare": "wrangler deploy --dry-run",
+    "test:worker": "node --test worker/*.test.mjs"
   },
   "devDependencies": {
     "wrangler": "4.142.0"
