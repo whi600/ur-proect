@@ -40,8 +40,8 @@ test('status requires only the server key and rate limiter', async () => {
   const statusRequest = new Request('https://example.workers.dev/api/assistant/status');
   const off = await handleRequest(statusRequest, {});
   const on = await handleRequest(statusRequest, environment());
-  assert.deepEqual(await off.json(), { configured: false });
-  assert.deepEqual(await on.json(), { configured: true });
+  assert.deepEqual(await off.json(), { configured: false, revision: 'provider-fetch-v2' });
+  assert.deepEqual(await on.json(), { configured: true, revision: 'provider-fetch-v2' });
 });
 
 test('worker validates and rate limits requests before calling model', async () => {
@@ -101,4 +101,14 @@ test('provider failures do not leak its response or server secrets', async () =>
   const body = await response.text();
   assert.equal(response.status, 502);
   assert.doesNotMatch(body, /secret provider diagnostics|provider-secret/);
+});
+
+test('provider connection diagnostics are safe to display', async () => {
+  const response = await handleRequest(ask(), environment(), async () => {
+    throw new TypeError('secret provider diagnostics');
+  });
+  assert.equal(response.status, 502);
+  const body = await response.json();
+  assert.equal(body.code, 'provider_connection');
+  assert.doesNotMatch(JSON.stringify(body), /secret provider diagnostics|provider-secret/);
 });

@@ -6,6 +6,7 @@ const MAX_QUESTION_LENGTH = 2_000;
 const MAX_CIRCUMSTANCES_LENGTH = 2_000;
 const MAX_BODY_LENGTH = 8_000;
 const MAX_OUTPUT_TOKENS = 900;
+const API_REVISION = 'provider-fetch-v2';
 
 const STOPWORDS = new Set([
   'для', 'как', 'мне', 'можно', 'надо', 'нужно', 'если', 'или', 'что', 'это',
@@ -115,7 +116,10 @@ function citation(document) {
 export async function handleRequest(request, env, fetchImpl = fetch) {
   const pathname = new URL(request.url).pathname;
   if (pathname === '/api/assistant/status' && request.method === 'GET') {
-    return json({ configured: Boolean(env.POLZA_API_KEY && env.AI_RATE_LIMIT) });
+    return json({
+      configured: Boolean(env.POLZA_API_KEY && env.AI_RATE_LIMIT),
+      revision: API_REVISION,
+    });
   }
   if (pathname !== '/api/assistant/ask') {
     return pathname.startsWith('/api/')
@@ -174,8 +178,13 @@ export async function handleRequest(request, env, fetchImpl = fetch) {
       }),
       signal: AbortSignal.timeout(30_000),
     });
-  } catch {
-    return json({ error: 'Поставщик ИИ не ответил. Попробуйте позже.' }, 502);
+  } catch (error) {
+    const code = error?.name === 'TimeoutError' || error?.name === 'AbortError'
+      ? 'provider_timeout'
+      : typeof fetchImpl !== 'function'
+        ? 'worker_fetch_configuration'
+        : 'provider_connection';
+    return json({ error: 'Поставщик ИИ не ответил. Попробуйте позже.', code }, 502);
   }
   if (!providerResponse.ok) {
     return json({ error: `Поставщик ИИ вернул ошибку ${providerResponse.status}.` }, 502);
