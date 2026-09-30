@@ -75,8 +75,8 @@ export function filterDocuments(documents: CatalogCard[], query: string): Catalo
   });
 }
 
-export async function getDocument(id: string): Promise<DocumentDetail | undefined> {
-  const snapshot = await loadSourceSnapshotDocument(id);
+export async function getDocument(id: string, offset = 0): Promise<DocumentDetail | undefined> {
+  const snapshot = await loadSourceSnapshotDocument(id, offset);
   if (snapshot) return snapshot;
   const card = metadataById.get(id);
   if (!card) return undefined;

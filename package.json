@@ -4,10 +4,13 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
+    "predev": "node scripts/build-article-index.mjs",
     "dev": "vite",
+    "prebuild": "node scripts/build-article-index.mjs",
     "build": "vite build && node scripts/build-sw.mjs",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
+    "pretest": "node scripts/build-article-index.mjs",
     "test": "node --test worker/index.test.mjs src/lib/assistant-stream.test.mjs src/lib/chat-memory.test.mjs",
     "check": "npm run typecheck && npm test && npm run build",
     "format": "prettier --write src worker index.html vite.config.ts tsconfig.json workbox-config.cjs",

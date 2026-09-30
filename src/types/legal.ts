@@ -58,8 +58,11 @@ export interface HealthResponse {
 export interface AssistantCitation {
   document_id: string;
   title: string;
+  page_number?: number;
+  fragment_id?: number;
   fragment_label: string;
   excerpt: string;
+  internal_url?: string;
   source_url: string | null;
   is_demo: boolean;
 }

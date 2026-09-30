@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { readFile } from 'node:fs/promises';
 
 import { createWorker, handleRequest, rankCatalog } from './index.mjs';
 
@@ -9,7 +10,12 @@ function ask(question = 'Какие права есть у покупателя 
   return new Request(endpoint, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ question }),
+    body: JSON.stringify({
+      question,
+      references: [
+        { document_id: 'ru-consumer-protection-law', page_number: 1, fragment_id: 10849 },
+      ],
+    }),
   });
 }
 
@@ -17,6 +23,16 @@ function environment(allowed = true) {
   return {
     POLZA_API_KEY: 'provider-secret',
     AI_RATE_LIMIT: { limit: async () => ({ success: allowed }) },
+    ASSETS: {
+      async fetch(request) {
+        const pathname = new URL(request.url).pathname;
+        try {
+          return new Response(await readFile(new URL(`../public${pathname}`, import.meta.url)));
+        } catch {
+          return new Response('Not found', { status: 404 });
+        }
+      },
+    },
   };
 }
 
@@ -42,8 +58,8 @@ test('status requires only the server key and rate limiter', async () => {
   const statusRequest = new Request('https://example.workers.dev/api/assistant/status');
   const off = await handleRequest(statusRequest, {});
   const on = await handleRequest(statusRequest, environment());
-  assert.deepEqual(await off.json(), { configured: false, revision: 'chat-memory-v4' });
-  assert.deepEqual(await on.json(), { configured: true, revision: 'chat-memory-v4' });
+  assert.deepEqual(await off.json(), { configured: false, revision: 'article-citations-v1' });
+  assert.deepEqual(await on.json(), { configured: true, revision: 'article-citations-v1' });
 });
 
 test('worker validates and rate limits requests before calling model', async () => {
@@ -58,7 +74,7 @@ test('worker validates and rate limits requests before calling model', async () 
   assert.equal(limited.status, 429);
 });
 
-test('worker sends bounded context to model and labels returned document cards', async () => {
+test('worker sends real article excerpts and internal links to the model', async () => {
   let outgoing;
   const response = await handleRequest(ask(), environment(), async (url, init) => {
     outgoing = { url, init };
@@ -79,10 +95,51 @@ test('worker sends bounded context to model and labels returned document cards',
   assert.equal(body.model, 'deepseek/deepseek-v4-flash');
   assert.equal(body.max_tokens, 10_000);
   assert.match(body.messages[0].content, /нет доступа к интернету/);
+  assert.match(body.messages.at(-1).content, /Текст фрагмента:/);
+  assert.match(
+    body.messages.at(-1).content,
+    /\/document\/ru-consumer-protection-law\?page=\d+#fragment-\d+/,
+  );
   assert.equal(result.mode, 'live');
   assert.equal(result.sources[0].document_id, 'ru-consumer-protection-law');
-  assert.match(result.sources[0].fragment_label, /не статья/);
+  assert.match(result.sources[0].fragment_label, /Статья/);
+  assert.match(result.sources[0].internal_url, /#fragment-\d+$/);
+  assert.ok(result.sources[0].excerpt.length > 50);
   assert.doesNotMatch(JSON.stringify(result), /provider-secret/);
+});
+
+test('article search finds the precise constitutional and labour articles', async () => {
+  const { findArticleSources } = await import('./article-search.mjs');
+  const assets = environment().ASSETS;
+  const constitution = await findArticleSources(
+    'Что говорит Конституция о праве на жизнь?',
+    assets,
+    rankCatalog('Что говорит Конституция о праве на жизнь?'),
+  );
+  assert.equal(constitution[0]?.fragment_label, 'Статья 20');
+  assert.match(constitution[0]?.excerpt ?? '', /право на жизнь/);
+  const labour = await findArticleSources('Как уволиться по собственному желанию?', assets, []);
+  assert.equal(labour[0]?.document_id, 'ru-labour-code');
+  assert.equal(labour[0]?.fragment_label, 'Статья 80');
+  const direct = await findArticleSources('Статья 20 Конституции', assets, []);
+  assert.equal(direct[0]?.document_id, 'ru-constitution-source');
+  assert.equal(direct[0]?.fragment_label, 'Статья 20');
+});
+
+test('worker rejects a forged article reference before calling the model', async () => {
+  const request = new Request(endpoint, {
+    method: 'POST',
+    body: JSON.stringify({
+      question: 'Что говорит закон о возврате товара?',
+      references: [
+        { document_id: 'ru-consumer-protection-law', page_number: 1, fragment_id: 999999 },
+      ],
+    }),
+  });
+  const response = await handleRequest(request, environment(), () => {
+    throw Error('must not call provider');
+  });
+  assert.equal(response.status, 400);
 });
 
 test('worker passes validated conversation history to the model in order', async () => {

@@ -4,7 +4,7 @@ module.exports = {
   globDirectory: 'dist',
   globPatterns: ['**/*.{css,html,ico,js,json,png,svg,ttf,wasm,woff,woff2}'],
   // Legal text pages are downloaded only when opened; never precache the corpus.
-  globIgnores: ['legal-texts/**'],
+  globIgnores: ['legal-texts/**', 'ai-index/**'],
   runtimeCaching: [
     {
       urlPattern: /\/legal-texts\/totopolis-2026-09-25-v1\/.*\.json$/,

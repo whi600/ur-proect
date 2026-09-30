@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { readFile } from 'node:fs/promises';
 
 import { readAssistantStream } from './assistant-stream.ts';
 import { handleRequest } from '../../worker/index.mjs';
@@ -70,11 +71,22 @@ test('browser reads a streamed answer from the Worker protocol', async () => {
   const request = new Request('https://example.workers.dev/api/assistant/ask', {
     method: 'POST',
     headers: { Accept: 'text/event-stream' },
-    body: JSON.stringify({ question: 'Как вернуть товар покупателю?' }),
+    body: JSON.stringify({
+      question: 'Как вернуть товар покупателю?',
+      references: [
+        { document_id: 'ru-consumer-protection-law', page_number: 1, fragment_id: 10849 },
+      ],
+    }),
   });
   const environment = {
     POLZA_API_KEY: 'test-secret',
     AI_RATE_LIMIT: { limit: async () => ({ success: true }) },
+    ASSETS: {
+      async fetch(request) {
+        const pathname = new URL(request.url).pathname;
+        return new Response(await readFile(new URL(`../../public${pathname}`, import.meta.url)));
+      },
+    },
   };
   const response = await handleRequest(request, environment, async () =>
     chunkedResponse([

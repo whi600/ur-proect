@@ -5,9 +5,16 @@ import {
   listDocuments,
   loadSourceSnapshotFragmentPage,
 } from './lib/catalog';
-import { downloadAllSourceSnapshotPages, SOURCE_SNAPSHOT_WEB_PAGE_COUNT } from './lib/texts';
+import {
+  downloadAllSourceSnapshotPages,
+  SOURCE_SNAPSHOT_PAGE_SIZE,
+  SOURCE_SNAPSHOT_WEB_PAGE_COUNT,
+} from './lib/texts';
 import { readAssistantStream } from './lib/assistant-stream';
 import { buildChatHistory, recentConversationMessages } from './lib/chat-memory';
+// Shared search runs in the browser; the Worker independently verifies its results.
+// @ts-expect-error The shared .mjs module is exercised by Node tests.
+import { findArticleSources } from '../worker/article-search.mjs';
 import type {
   AssistantAnswer,
   DocumentDetail,
@@ -227,7 +234,7 @@ function Search({ documents }: { documents: DocumentSummary[] }) {
 
 function Fragment({ fragment }: { fragment: DocumentFragment }) {
   return (
-    <article className="fragment">
+    <article className="fragment" id={`fragment-${fragment.id}`}>
       <h3>{fragment.label ?? fragment.heading}</h3>
       {fragment.heading && fragment.heading !== fragment.label && <h4>{fragment.heading}</h4>}
       <p>
@@ -250,10 +257,15 @@ function DocumentPage({
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState('');
+  const requestedPage = Number(new URLSearchParams(window.location.search).get('page') ?? 0);
+  const startOffset =
+    Number.isSafeInteger(requestedPage) && requestedPage >= 0
+      ? requestedPage * SOURCE_SNAPSHOT_PAGE_SIZE
+      : 0;
   const reload = () => {
     setLoading(true);
     setError('');
-    void getDocument(id)
+    void getDocument(id, startOffset)
       .then(setDocument)
       .catch((cause) =>
         setError(cause instanceof Error ? cause.message : 'Не удалось открыть документ.'),
@@ -262,7 +274,7 @@ function DocumentPage({
   };
   useEffect(() => {
     let active = true;
-    void getDocument(id)
+    void getDocument(id, startOffset)
       .then((result) => {
         if (active) setDocument(result);
       })
@@ -276,13 +288,23 @@ function DocumentPage({
     return () => {
       active = false;
     };
-  }, [id]);
+  }, [id, startOffset]);
+  useEffect(() => {
+    if (loading || !document?.fragments || !window.location.hash) return;
+    const target = window.document.getElementById(
+      decodeURIComponent(window.location.hash.slice(1)),
+    );
+    target?.scrollIntoView({ block: 'start' });
+  }, [document, loading]);
   const loadMore = async () => {
     if (!document?.fragments || loadingMore) return;
     setLoadingMore(true);
     setError('');
     try {
-      const page = await loadSourceSnapshotFragmentPage(id, document.fragments.length);
+      const page = await loadSourceSnapshotFragmentPage(
+        id,
+        startOffset + document.fragments.length,
+      );
       if (page)
         setDocument({
           ...document,
@@ -347,15 +369,18 @@ function DocumentPage({
                 <div>
                   <h2>Статьи и разделы</h2>
                   <p>
-                    Показано {document.fragments.length} из{' '}
+                    Показано {startOffset + document.fragments.length} из{' '}
                     {document.fragments_total ?? document.fragments.length}
                   </p>
                 </div>
+                {startOffset > 0 && (
+                  <a href={`/document/${encodeURIComponent(id)}`}>К началу документа ↑</a>
+                )}
               </div>
               {document.fragments.map((fragment) => (
                 <Fragment fragment={fragment} key={fragment.id} />
               ))}
-              {(document.fragments_total ?? 0) > document.fragments.length && (
+              {(document.fragments_total ?? 0) > startOffset + document.fragments.length && (
                 <button
                   className="more-button"
                   type="button"
@@ -406,6 +431,28 @@ type ChatMessage = {
   text: string;
   answer?: AssistantAnswer;
 };
+
+function sourceHref(source: AssistantAnswer['sources'][number]): string {
+  return source.internal_url &&
+    /^\/document\/[a-z0-9-]+\?page=\d+#fragment-\d+$/.test(source.internal_url)
+    ? source.internal_url
+    : `/document/${encodeURIComponent(source.document_id)}`;
+}
+
+function linkedAnswer(text: string, answer?: AssistantAnswer) {
+  if (!answer?.sources.length) return text;
+  return text.split(/(\[\d{1,2}\])/g).map((part, index) => {
+    const match = /^\[(\d{1,2})\]$/.exec(part);
+    const source = match ? answer.sources[Number(match[1]) - 1] : undefined;
+    return source ? (
+      <a href={sourceHref(source)} key={index} title={`${source.title}, ${source.fragment_label}`}>
+        {part}
+      </a>
+    ) : (
+      part
+    );
+  });
+}
 
 function readChatMessages(): ChatMessage[] {
   try {
@@ -484,10 +531,28 @@ function Assistant() {
       });
     };
     try {
+      const greeting = /^(привет|здравствуйте|добрый день|добрый вечер|спасибо)[!. ]*$/iu.test(
+        text,
+      );
+      showProgress(greeting ? 'Готовим ответ…' : 'Ищем статьи в каталоге…');
+      const found = greeting
+        ? []
+        : ((await findArticleSources(text, {
+            fetch: (request: Request) =>
+              fetch(new URL(request.url).pathname, { signal: controller.signal }),
+          })) as AssistantAnswer['sources']);
       const response = await fetch('/api/assistant/ask', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
-        body: JSON.stringify({ question: text, history }),
+        body: JSON.stringify({
+          question: text,
+          history,
+          references: found.map(({ document_id, page_number, fragment_id }) => ({
+            document_id,
+            page_number,
+            fragment_id,
+          })),
+        }),
         signal: controller.signal,
       });
       const contentType = response.headers.get('Content-Type') ?? '';
@@ -580,17 +645,29 @@ function Assistant() {
         )}
         {messages.map((message) => (
           <div className={`chat-bubble ${message.role}`} key={message.id}>
-            <p>{message.text}</p>
+            <p>{linkedAnswer(message.text, message.answer)}</p>
             {message.answer?.sources.length ? (
               <div className="chat-sources">
-                <strong>Возможно связанные документы</strong>
-                {message.answer.sources.map((source) => (
-                  <a
-                    href={`/document/${encodeURIComponent(source.document_id)}`}
-                    key={source.document_id}
+                <strong>
+                  {message.answer.sources.some((source) => source.internal_url)
+                    ? 'Статьи из каталога'
+                    : 'Связанные документы'}
+                </strong>
+                {message.answer.sources.map((source, index) => (
+                  <div
+                    className="chat-source"
+                    key={`${source.document_id}-${source.fragment_id ?? index}`}
                   >
-                    {source.title} →
-                  </a>
+                    <a href={sourceHref(source)}>
+                      [{index + 1}] {source.title}, {source.fragment_label} →
+                    </a>
+                    {source.internal_url && source.excerpt && (
+                      <span>
+                        {source.excerpt.slice(0, 220)}
+                        {source.excerpt.length > 220 ? '…' : ''}
+                      </span>
+                    )}
+                  </div>
                 ))}
               </div>
             ) : null}

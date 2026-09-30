@@ -12,6 +12,7 @@ export type SourceSnapshotFragmentPage = {
 type WebDocument = DocumentSummary & { fragments_total: number; page_count: number };
 type WebManifest = { version: string; page_size: number; documents: WebDocument[] };
 const manifest = rawManifest as unknown as WebManifest;
+export const SOURCE_SNAPSHOT_PAGE_SIZE = manifest.page_size;
 const byId = new Map(manifest.documents.map((document) => [document.id, document]));
 export const SOURCE_SNAPSHOT_WEB_PAGE_COUNT = manifest.documents.reduce(
   (total, document) => total + document.page_count,
@@ -88,10 +89,13 @@ export async function searchSourceSnapshotDocuments(query: string): Promise<Docu
     .map(summary);
 }
 
-export async function loadSourceSnapshotDocument(id: string): Promise<DocumentDetail | undefined> {
+export async function loadSourceSnapshotDocument(
+  id: string,
+  offset = 0,
+): Promise<DocumentDetail | undefined> {
   const document = byId.get(id);
   if (!document) return undefined;
-  const page = await fetchPage(document, 0);
+  const page = await fetchPage(document, offset);
   return {
     ...summary(document),
     content: 'Текст из открытого стороннего снимка. Юридическая сверка редакции не выполнена.',

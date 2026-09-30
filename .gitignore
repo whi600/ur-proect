@@ -17,6 +17,7 @@ Thumbs.db
 # Node / PWA
 node_modules/
 dist/
+public/ai-index/
 npm-debug.log*
 
 # Local database and generated data
