@@ -1,0 +1,615 @@
+import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
+import {
+  filterDocuments,
+  getDocument,
+  listDocuments,
+  loadSourceSnapshotFragmentPage,
+} from './lib/catalog';
+import { downloadAllSourceSnapshotPages, SOURCE_SNAPSHOT_WEB_PAGE_COUNT } from './lib/texts';
+import type {
+  AssistantAnswer,
+  DocumentDetail,
+  DocumentFragment,
+  DocumentSummary,
+} from './types/legal';
+
+const FAVORITES_KEY = '@pravo-orbita/favorite-document-ids/v1';
+
+function readFavorites(): string[] {
+  try {
+    const value = JSON.parse(localStorage.getItem(FAVORITES_KEY) ?? '[]');
+    return Array.isArray(value) ? value.filter((id): id is string => typeof id === 'string') : [];
+  } catch {
+    return [];
+  }
+}
+
+function useViewportHeight() {
+  useEffect(() => {
+    const viewport = window.visualViewport;
+    const update = () => {
+      document.documentElement.style.setProperty(
+        '--app-height',
+        `${viewport?.height ?? window.innerHeight}px`,
+      );
+    };
+    update();
+    viewport?.addEventListener('resize', update);
+    window.addEventListener('resize', update);
+    return () => {
+      viewport?.removeEventListener('resize', update);
+      window.removeEventListener('resize', update);
+    };
+  }, []);
+}
+
+function DocumentList({ documents }: { documents: DocumentSummary[] }) {
+  if (!documents.length)
+    return <div className="empty">Документы не найдены. Попробуйте другое название или номер.</div>;
+  return (
+    <div className="document-list">
+      {documents.map((document) => (
+        <a
+          className="document-row"
+          href={`/document/${encodeURIComponent(document.id)}`}
+          key={document.id}
+        >
+          <span className="document-icon">§</span>
+          <span className="document-row-copy">
+            <strong>{document.title}</strong>
+            <small>
+              {document.document_type}
+              {document.document_number ? ` · ${document.document_number}` : ''}
+            </small>
+          </span>
+          <span className="row-arrow" aria-hidden="true">
+            ›
+          </span>
+        </a>
+      ))}
+    </div>
+  );
+}
+
+function Home({ documents }: { documents: DocumentSummary[] }) {
+  const [query, setQuery] = useState('');
+  const [downloading, setDownloading] = useState(false);
+  const [progress, setProgress] = useState('');
+  const textCount = documents.filter((item) => item.content_state === 'source_snapshot').length;
+
+  const download = async () => {
+    setDownloading(true);
+    setProgress('Подготавливаем библиотеку…');
+    try {
+      await downloadAllSourceSnapshotPages((done, total) => {
+        if (done % 12 === 0 || done === total) setProgress(`Сохранено ${done} из ${total} частей`);
+      });
+      setProgress('Тексты сохранены в этом браузере для чтения без сети.');
+    } catch (error) {
+      setProgress(error instanceof Error ? error.message : 'Загрузка прервалась. Повторите позже.');
+    } finally {
+      setDownloading(false);
+    }
+  };
+
+  return (
+    <div className="page home-page">
+      <section className="hero">
+        <div className="eyebrow">ПРАВООРБИТА · ПРАВОВАЯ БИБЛИОТЕКА</div>
+        <h1>Найдите нужный документ</h1>
+        <p>Конституция, основные кодексы и ключевые федеральные законы — в одном каталоге.</p>
+        <form className="search-form" action="/search" method="get">
+          <label htmlFor="home-search">Поиск документов</label>
+          <div className="search-line">
+            <input
+              id="home-search"
+              name="q"
+              placeholder="Название, номер или тема"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+            />
+            <button type="submit">Найти</button>
+          </div>
+        </form>
+      </section>
+
+      <section className="section">
+        <div className="section-heading">
+          <div>
+            <h2>Каталог</h2>
+            <p>Выберите раздел или откройте весь список</p>
+          </div>
+          <a href="/search">Все документы →</a>
+        </div>
+        <div className="category-grid">
+          <a className="category-card" href="/document/ru-constitution-source">
+            <span className="category-number">01</span>
+            <strong>Конституция</strong>
+            <span>Основной закон Российской Федерации</span>
+            <b aria-hidden="true">→</b>
+          </a>
+          <a className="category-card" href="/search?q=кодексы">
+            <span className="category-number">02</span>
+            <strong>Кодексы</strong>
+            <span>Гражданское, уголовное, трудовое и другие направления</span>
+            <b aria-hidden="true">→</b>
+          </a>
+          <a className="category-card" href="/search?q=федеральные+законы">
+            <span className="category-number">03</span>
+            <strong>Федеральные законы</strong>
+            <span>Важные отраслевые акты</span>
+            <b aria-hidden="true">→</b>
+          </a>
+        </div>
+      </section>
+
+      <a className="assistant-promo" href="/assistant">
+        <span className="eyebrow">ИИ-ПОМОЩНИК</span>
+        <strong>Не знаете, с чего начать?</strong>
+        <span>Задайте вопрос и получите предварительный разбор.</span>
+        <b>Открыть помощника →</b>
+      </a>
+
+      <section className="offline-panel">
+        <div>
+          <h2>Чтение без сети</h2>
+          <p>
+            Каталог доступен сразу. Тексты {textCount} документов загружаются по мере чтения; все{' '}
+            {SOURCE_SNAPSHOT_WEB_PAGE_COUNT} небольших частей можно сохранить заранее.
+          </p>
+        </div>
+        <button
+          type="button"
+          className="secondary-button"
+          onClick={() => void download()}
+          disabled={downloading}
+        >
+          {downloading ? 'Сохраняем…' : 'Сохранить все тексты'}
+        </button>
+        {progress && (
+          <p className="progress" role="status">
+            {progress}
+          </p>
+        )}
+      </section>
+      <p className="small-note">
+        Тексты взяты из стороннего снимка. Редакции не прошли юридическую сверку; для применения
+        нормы проверьте официальный источник на нужную дату.
+      </p>
+    </div>
+  );
+}
+
+function Search({ documents }: { documents: DocumentSummary[] }) {
+  const initialQuery = new URLSearchParams(window.location.search).get('q') ?? '';
+  const [query, setQuery] = useState(initialQuery);
+  const results = useMemo(() => filterDocuments(documents, query), [documents, query]);
+  return (
+    <div className="page">
+      <header className="page-intro">
+        <h1>Каталог документов</h1>
+        <p>Поиск по названию, номеру и теме</p>
+      </header>
+      <div className="search-panel">
+        <label htmlFor="catalog-search">Найти в каталоге</label>
+        <input
+          id="catalog-search"
+          type="search"
+          placeholder="Например, Гражданский кодекс"
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+        />
+        <div className="chips">
+          <button type="button" onClick={() => setQuery('конституция')}>
+            Конституция
+          </button>
+          <button type="button" onClick={() => setQuery('кодексы')}>
+            Кодексы
+          </button>
+          <button type="button" onClick={() => setQuery('федеральные законы')}>
+            Федеральные законы
+          </button>
+        </div>
+      </div>
+      <div className="section-heading results-heading">
+        <div>
+          <h2>{query ? 'Результаты поиска' : 'Все документы'}</h2>
+          <p>{results.length} документов</p>
+        </div>
+      </div>
+      <DocumentList documents={results} />
+    </div>
+  );
+}
+
+function Fragment({ fragment }: { fragment: DocumentFragment }) {
+  return (
+    <article className="fragment">
+      <h3>{fragment.label ?? fragment.heading}</h3>
+      {fragment.heading && fragment.heading !== fragment.label && <h4>{fragment.heading}</h4>}
+      <p>
+        {fragment.body || fragment.legal_status || 'Текст фрагмента отсутствует в исходном снимке.'}
+      </p>
+    </article>
+  );
+}
+
+function DocumentPage({
+  id,
+  favorites,
+  toggleFavorite,
+}: {
+  id: string;
+  favorites: string[];
+  toggleFavorite: (id: string) => void;
+}) {
+  const [document, setDocument] = useState<DocumentDetail>();
+  const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [error, setError] = useState('');
+  const reload = () => {
+    setLoading(true);
+    setError('');
+    void getDocument(id)
+      .then(setDocument)
+      .catch((cause) =>
+        setError(cause instanceof Error ? cause.message : 'Не удалось открыть документ.'),
+      )
+      .finally(() => setLoading(false));
+  };
+  useEffect(() => {
+    let active = true;
+    void getDocument(id)
+      .then((result) => {
+        if (active) setDocument(result);
+      })
+      .catch((cause) => {
+        if (active)
+          setError(cause instanceof Error ? cause.message : 'Не удалось открыть документ.');
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [id]);
+  const loadMore = async () => {
+    if (!document?.fragments || loadingMore) return;
+    setLoadingMore(true);
+    setError('');
+    try {
+      const page = await loadSourceSnapshotFragmentPage(id, document.fragments.length);
+      if (page)
+        setDocument({
+          ...document,
+          fragments: [...document.fragments, ...page.fragments],
+          fragments_total: page.total,
+        });
+    } catch (cause) {
+      setError(
+        cause instanceof Error ? cause.message : 'Не удалось загрузить следующую часть текста.',
+      );
+    } finally {
+      setLoadingMore(false);
+    }
+  };
+
+  return (
+    <div className="page document-page">
+      <a className="back-link" href="/search">
+        ← К каталогу
+      </a>
+      {loading && <p role="status">Открываем документ…</p>}
+      {error && (
+        <div className="error-panel" role="alert">
+          {error}{' '}
+          <button type="button" onClick={reload}>
+            Повторить
+          </button>
+        </div>
+      )}
+      {!loading && !document && !error && (
+        <div className="empty">Документ не найден в каталоге.</div>
+      )}
+      {document && (
+        <>
+          <section className="document-header">
+            <span className="eyebrow">{document.document_type}</span>
+            <h1>{document.title}</h1>
+            <p>{document.document_number}</p>
+            <button className="secondary-button" type="button" onClick={() => toggleFavorite(id)}>
+              {favorites.includes(id) ? '★ В избранном' : '☆ Добавить в избранное'}
+            </button>
+          </section>
+          <div className="document-meta">
+            <span>Источник: {document.source_name}</span>
+            <span>{document.revision_label}</span>
+            {document.source_url && (
+              <a href={document.source_url} target="_blank" rel="noreferrer">
+                Открыть источник ↗
+              </a>
+            )}
+          </div>
+          <p className="legal-note">
+            Текст из стороннего снимка; юридическая сверка редакции не выполнена. Перед
+            использованием нормы сравните её с официальной публикацией на нужную дату.
+          </p>
+          {document.content_state !== 'source_snapshot' && (
+            <div className="empty">{document.content}</div>
+          )}
+          {document.fragments && (
+            <section className="fragments">
+              <div className="section-heading">
+                <div>
+                  <h2>Статьи и разделы</h2>
+                  <p>
+                    Показано {document.fragments.length} из{' '}
+                    {document.fragments_total ?? document.fragments.length}
+                  </p>
+                </div>
+              </div>
+              {document.fragments.map((fragment) => (
+                <Fragment fragment={fragment} key={fragment.id} />
+              ))}
+              {(document.fragments_total ?? 0) > document.fragments.length && (
+                <button
+                  className="more-button"
+                  type="button"
+                  disabled={loadingMore}
+                  onClick={() => void loadMore()}
+                >
+                  {loadingMore ? 'Загружаем…' : 'Показать следующие статьи'}
+                </button>
+              )}
+            </section>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+function Favorites({
+  documents,
+  favorites,
+}: {
+  documents: DocumentSummary[];
+  favorites: string[];
+}) {
+  const chosen = favorites
+    .map((id) => documents.find((document) => document.id === id))
+    .filter((document): document is DocumentSummary => Boolean(document));
+  return (
+    <div className="page">
+      <header className="page-intro">
+        <h1>Избранное</h1>
+        <p>Документы, которые вы сохранили на этом устройстве</p>
+      </header>
+      {chosen.length ? (
+        <DocumentList documents={chosen} />
+      ) : (
+        <div className="empty">
+          Здесь пока пусто. Откройте документ в каталоге и нажмите «Добавить в избранное».
+        </div>
+      )}
+    </div>
+  );
+}
+
+type ChatMessage = {
+  id: number;
+  role: 'user' | 'assistant' | 'error';
+  text: string;
+  answer?: AssistantAnswer;
+};
+
+function Assistant() {
+  const [question, setQuestion] = useState('');
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [pending, setPending] = useState(false);
+  const [validation, setValidation] = useState('');
+  const bottom = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    bottom.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
+  }, [messages, pending]);
+  const submit = async (event: FormEvent) => {
+    event.preventDefault();
+    const text = question.trim();
+    if (text.length < 3) {
+      setValidation('Введите вопрос хотя бы из трёх символов.');
+      return;
+    }
+    if (pending) return;
+    setValidation('');
+    setQuestion('');
+    setMessages((previous) => [...previous, { id: Date.now(), role: 'user', text }]);
+    setPending(true);
+    try {
+      const controller = new AbortController();
+      const timeout = window.setTimeout(() => controller.abort(), 35_000);
+      try {
+        const response = await fetch('/api/assistant/ask', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ question: text }),
+          signal: controller.signal,
+        });
+        if (!response.headers.get('Content-Type')?.includes('application/json')) {
+          throw new Error('ИИ доступен на опубликованном адресе PWA через Cloudflare Worker.');
+        }
+        const data = (await response.json()) as AssistantAnswer & { error?: string };
+        if (!response.ok)
+          throw new Error(data.error ?? `Помощник недоступен (ошибка ${response.status}).`);
+        if (data.mode !== 'live' || !data.answer)
+          throw new Error('Сервер вернул неожиданный ответ.');
+        setMessages((previous) => [
+          ...previous,
+          { id: Date.now() + 1, role: 'assistant', text: data.answer, answer: data },
+        ]);
+      } finally {
+        window.clearTimeout(timeout);
+      }
+    } catch (cause) {
+      setMessages((previous) => [
+        ...previous,
+        {
+          id: Date.now() + 2,
+          role: 'error',
+          text:
+            cause instanceof Error && cause.name === 'AbortError'
+              ? 'Помощник не ответил за 35 секунд.'
+              : cause instanceof Error
+                ? cause.message
+                : 'Не удалось получить ответ.',
+        },
+      ]);
+    } finally {
+      setPending(false);
+    }
+  };
+  return (
+    <div className="assistant-page">
+      <header className="assistant-header">
+        <h1>Помощник</h1>
+        <p>Задайте вопрос по документам</p>
+      </header>
+      <div className="chat-messages" aria-live="polite">
+        {!messages.length && <p className="chat-empty">Напишите свой вопрос в поле ниже.</p>}
+        {messages.map((message) => (
+          <div className={`chat-bubble ${message.role}`} key={message.id}>
+            <p>{message.text}</p>
+            {message.answer?.sources.length ? (
+              <div className="chat-sources">
+                <strong>Возможно связанные документы</strong>
+                {message.answer.sources.map((source) => (
+                  <a
+                    href={`/document/${encodeURIComponent(source.document_id)}`}
+                    key={source.document_id}
+                  >
+                    {source.title} →
+                  </a>
+                ))}
+              </div>
+            ) : null}
+            {message.answer && <small>{message.answer.disclaimer}</small>}
+          </div>
+        ))}
+        {pending && <div className="chat-bubble assistant">Готовим ответ…</div>}
+        <div ref={bottom} />
+      </div>
+      <form className="chat-composer" onSubmit={(event) => void submit(event)}>
+        <label className="sr-only" htmlFor="chat-question">
+          Вопрос помощнику
+        </label>
+        <textarea
+          id="chat-question"
+          rows={2}
+          placeholder="Напишите вопрос…"
+          value={question}
+          onChange={(event) => setQuestion(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter' && !event.shiftKey && !('ontouchstart' in window)) {
+              event.preventDefault();
+              event.currentTarget.form?.requestSubmit();
+            }
+          }}
+        />
+        <button type="submit" disabled={pending} aria-label="Отправить вопрос">
+          ↑
+        </button>
+        {validation && (
+          <span className="validation" role="alert">
+            {validation}
+          </span>
+        )}
+      </form>
+    </div>
+  );
+}
+
+export default function App() {
+  useViewportHeight();
+  const [documents, setDocuments] = useState<DocumentSummary[]>([]);
+  const [favorites, setFavorites] = useState(readFavorites);
+  const [storageError, setStorageError] = useState('');
+  useEffect(() => {
+    void listDocuments().then(setDocuments);
+  }, []);
+  const toggleFavorite = (id: string) => {
+    const next = favorites.includes(id)
+      ? favorites.filter((item) => item !== id)
+      : [...favorites, id];
+    try {
+      localStorage.setItem(FAVORITES_KEY, JSON.stringify(next));
+      setFavorites(next);
+      setStorageError('');
+    } catch {
+      setStorageError('Не удалось сохранить избранное на этом устройстве.');
+    }
+  };
+  const path = window.location.pathname;
+  const active =
+    path.startsWith('/search') || path.startsWith('/document/')
+      ? 'search'
+      : path.startsWith('/favorites')
+        ? 'favorites'
+        : path.startsWith('/assistant')
+          ? 'assistant'
+          : 'home';
+  const documentId = path.startsWith('/document/')
+    ? decodeURIComponent(path.slice('/document/'.length))
+    : '';
+  return (
+    <div className="app-shell">
+      <main className={`main-content ${active === 'assistant' ? 'main-chat' : ''}`}>
+        {storageError && (
+          <p className="storage-error" role="alert">
+            {storageError}
+          </p>
+        )}
+        {documentId ? (
+          <DocumentPage id={documentId} favorites={favorites} toggleFavorite={toggleFavorite} />
+        ) : active === 'search' ? (
+          <Search documents={documents} />
+        ) : active === 'favorites' ? (
+          <Favorites documents={documents} favorites={favorites} />
+        ) : active === 'assistant' ? (
+          <Assistant />
+        ) : (
+          <Home documents={documents} />
+        )}
+      </main>
+      <nav className="bottom-nav" aria-label="Основное меню">
+        <a
+          className={active === 'home' ? 'active' : ''}
+          aria-current={active === 'home' ? 'page' : undefined}
+          href="/"
+        >
+          <span>⌂</span>Главная
+        </a>
+        <a
+          className={active === 'search' ? 'active' : ''}
+          aria-current={active === 'search' ? 'page' : undefined}
+          href="/search"
+        >
+          <span>☷</span>Каталог
+        </a>
+        <a
+          className={active === 'favorites' ? 'active' : ''}
+          aria-current={active === 'favorites' ? 'page' : undefined}
+          href="/favorites"
+        >
+          <span>☆</span>Избранное
+        </a>
+        <a
+          className={active === 'assistant' ? 'active' : ''}
+          aria-current={active === 'assistant' ? 'page' : undefined}
+          href="/assistant"
+        >
+          <span>✧</span>Помощник
+        </a>
+      </nav>
+    </div>
+  );
+}

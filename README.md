@@ -1,227 +1,63 @@
-# ПравоОрбита — технический каркас
+# ПравоОрбита — PWA
 
-Временное рабочее имя проекта — **«ПравоОрбита»**. Это не готовый продукт и не
-связано с брендом, дизайном, базой данных или материалами «КонсультантПлюс».
-Проверка имени на товарные знаки в этот этап не входила.
+Один веб-проект для iPhone, Android и компьютера. Это не приложение App Store или APK: установка на телефон выполняется из браузера как PWA. Проект не связан с «КонсультантПлюс» и не использует его базу или оформление.
 
-Каркас включает Expo-приложение для iOS/Android, FastAPI API и подготовленную
-локальную конфигурацию PostgreSQL + pgvector. В PWA сразу доступен каталог
-реквизитов: Конституция, 20 кодексов и 13 ключевых законов. Тексты 37 актов
-(10 807 статей) добавлены отдельными небольшими файлами: они загружаются при
-чтении, а для полного офлайна скачиваются пользователем отдельно. Нативное
-приложение использует локальный SQLite-пакет того же снимка. Тексты **не**
-являются юридически проверенной или гарантированно актуальной редакцией.
-Локальный FastAPI по-прежнему возвращает отдельно
-помеченные демонстрационные ответы; опубликованный Worker готов для настоящей
-модели после добавления секретов владельцем.
-
-## Структура
+## Что находится в репозитории
 
 ```text
-mobile/    Expo + React Native + TypeScript + Expo Router
-backend/   FastAPI, SQLAlchemy, Alembic, тесты
-infra/     Docker Compose для локального PostgreSQL + pgvector
-docs/      архитектура и запуск с iPhone
+src/       React + TypeScript: каталог, чтение, избранное, чат
+public/    значки PWA и постраничные тексты документов
+worker/    Cloudflare Worker: раздача PWA и защищённый запрос к модели
+docs/      происхождение данных, ограничения и архитектура
 ```
 
-Подробнее: [архитектура](docs/architecture.md), [контракт API](docs/api.md), [iPhone и локальная сеть](docs/iphone.md). Для первого запуска Expo Go сохранена отдельная пошаговая [памятка](docs/expo-go-later.md). Решения редизайна и использованные UX-источники сохранены в [документе по UX](docs/ux-redesign.md). Статус офлайн-каталога и безопасная подготовка будущих текстовых пакетов описаны в [документе об офлайн-каталоге](docs/offline-catalog.md) и [документе по правовым источникам](docs/russian-legal-sources.md).
+Каталог и избранное работают без отдельного сервера. Есть тексты 37 документов из зафиксированного стороннего снимка: страницы загружаются при открытии, а кнопка на главной сохраняет все 471 части для чтения без сети. Это **не юридически проверенные и не гарантированно актуальные редакции**. Источник и лицензия: [docs/third-party-notices.md](docs/third-party-notices.md), состав: [docs/web-text-export.md](docs/web-text-export.md).
 
-Для отдельной установки без ИИ-помощника подготовлены PWA для iPhone и профиль
-APK для Android: [инструкция](docs/pwa-and-android.md).
+ИИ-помощник требует интернета и Cloudflare Worker. Ключ Polza AI хранится только в секрете Worker `POLZA_API_KEY`; он не должен находиться в Git, `.env` или переменных `VITE_*`. Сейчас модель получает реквизиты связанных документов, **не тексты статей** и не интернет-поиск. Ответ — предварительный учебный разбор, не юридическое заключение. Подробнее: [docs/ai-integration.md](docs/ai-integration.md).
 
-Серверный интерфейс для платного ИИ через Cloudflare Worker и Polza AI описан в
-[инструкции по подключению ИИ](docs/ai-integration.md). Пока в Cloudflare не
-добавлены секреты, вызовы модели отключены. Сейчас Worker подбирает для ИИ
-только карточки реквизитов, **не** тексты статей; не выдавайте его подбор за
-проверенные ссылки на нормы права.
+## Запуск на Windows
 
-Быстрый повторный запуск Android-сборки из PowerShell:
+Нужен Node.js 20.19+ или 22.12+ (здесь проверен Node 24). В PowerShell из корня репозитория:
 
 ```powershell
-Set-Location 'C:\Users\User\Documents\ChatGPT\консультант плюс ( с ИИ)\mobile'
-npx eas login
-npm run android:configure # только перед первой сборкой, после входа в Expo
-npm run android:apk
+npm ci
+npm run dev
 ```
 
-## Первый запуск после получения проекта
+Откройте `http://127.0.0.1:5173/`. Остановить — `Ctrl+C` в этом окне. Локальный каталог и тексты работают; для локальной проверки настоящего ИИ отдельно нужен настроенный Worker. Локальный Vite не имеет ключа и не делает платные вызовы.
+
+Проверка и просмотр готовой сборки:
 
 ```powershell
-# Один раз: зависимости мобильного приложения (используется только npm).
-Set-Location .\mobile
-npm install
-
-# Один раз: изолированное Python-окружение и зафиксированные зависимости API.
-Set-Location ..\backend
-py -3.12 -m venv .venv
-.\.venv\Scripts\python.exe -m pip install --upgrade pip
-.\.venv\Scripts\python.exe -m pip install -r .\requirements.lock
-
-# Локальные, не попадающие в Git настройки (создаются лишь если отсутствуют).
-if (-not (Test-Path .\.env)) { Copy-Item .\.env.example .\.env }
-Set-Location ..\mobile
-if (-not (Test-Path .\.env)) { Copy-Item .\.env.example .\.env }
-```
-
-В `mobile/.env` указывается только LAN-адрес API. Не добавляйте туда ключи,
-пароли или адрес PostgreSQL.
-
-## HTTP API
-
-В режиме `APP_DATA_MODE=demo` API возвращает стартовые карточки локального
-каталога и отдельно помеченные учебные материалы:
-
-```text
-GET  /api/v1/health
-GET  /api/v1/documents?q=<необязательно>
-GET  /api/v1/documents/{document_id}
-GET  /api/v1/search?q=<запрос>
-POST /api/v1/assistant/ask
-```
-
-Для локального FastAPI `POST /assistant/ask` передаются `question`, а при наличии —
-`as_of_date` и `circumstances`. Сервер всегда возвращает `mode: "demo"` на
-этом этапе и явно указывает, что это не ответ реальной ИИ-модели. Отдельный
-Cloudflare Worker обслуживает `/api/assistant/ask` и только после настройки
-серверных секретов делает настоящий запрос к Polza AI.
-
-## Быстрый запуск в демонстрационном режиме
-
-В демонстрационном режиме PostgreSQL не нужен: API отдаёт встроенный каталог
-реквизитов и отдельно помеченные учебные примеры.
-
-```powershell
-# 1. API — окно PowerShell №1
-if (-not (Test-Path .\backend\.env)) { Copy-Item .\backend\.env.example .\backend\.env }
-Set-Location .\backend
-.\.venv\Scripts\python.exe -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
-
-# 2. Мобильное приложение — окно PowerShell №2
-Set-Location <путь-к-проекту>\mobile
-if (-not (Test-Path .\.env)) { Copy-Item .\.env.example .\.env }
-# Укажите в .env LAN-IP компьютера, например:
-# EXPO_PUBLIC_API_BASE_URL=http://192.168.1.25:8000/api/v1
-npx expo login
-npm run start:lan
-```
-
-`npx expo login` открывает вход в бесплатный Expo-аккаунт. На iPhone нужно
-войти в Expo Go под **тем же** аккаунтом. Для текущей App Store версии Expo Go
-это требуется для запуска SDK 57-проектов.
-
-Проверить API с компьютера можно до запуска телефона:
-
-```powershell
-Invoke-RestMethod http://127.0.0.1:8000/api/v1/health
-Invoke-RestMethod 'http://127.0.0.1:8000/api/v1/search?q=%D0%BA%D0%BE%D0%B4%D0%B5%D0%BA%D1%81%D1%8B'
-```
-
-Остановить API: `Ctrl+C` в его окне. Остановить Expo: `Ctrl+C` в окне Expo.
-
-## Открыть интерфейс на этом ноутбуке
-
-Не требуется iPhone или Expo-аккаунт. API и веб-версия запускаются в двух
-окнах PowerShell:
-
-```powershell
-# Окно 1: API
-Set-Location '<путь-к-проекту>\backend'
-.\.venv\Scripts\python.exe -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
-
-# Окно 2: веб-версия приложения
-Set-Location '<путь-к-проекту>\mobile'
-npm run web
-```
-
-Откройте `http://localhost:8081`. Веб-версия автоматически использует
-`EXPO_PUBLIC_API_BASE_URL_WEB=http://127.0.0.1:8000/api/v1`; настройка для
-будущего iPhone остаётся отдельной. В браузере не загружается большой SQLite
-снимок: статьи доступны как отдельные страницы по требованию, поэтому запуск
-PWA остаётся лёгким.
-
-## Локальный снимок текстов для Expo Go
-
-В текущей рабочей папке создан файл
-`mobile/assets/legal/ru-core-snapshot-2026-09-25.db` (около 130 МБ). Он
-игнорируется Git, потому что это производный сторонний пакет, а не исходный код
-проекта. При первом старте Expo Go копирует его во внутреннее хранилище
-приложения и затем открывает статьи без API и интернета.
-
-Пакет имеет статус `source_snapshot` / `not_reviewed`. Не называйте его
-официальной правовой базой, не используйте как основание для юридического
-заключения и не передавайте его ИИ как проверенный источник. Для воспроизведения
-нужны предварительно проверенные локальные исходники из
-[аудита](docs/totopolis-audit-2026-09-26.md); команда не выполняет скачиваний:
-
-```powershell
-Set-Location <путь-к-проекту>
-.\backend\.venv\Scripts\python.exe .\backend\scripts\import_totopolis_snapshot.py `
-  --source-root .\.cache\totopolis-laws-audit-content\laws-main `
-  --output .\mobile\assets\legal\ru-core-snapshot-2026-09-25.db `
-  --allow-mobile-asset
-
-.\backend\.venv\Scripts\python.exe .\backend\scripts\import_totopolis_snapshot.py `
-  --check `
-  --output .\mobile\assets\legal\ru-core-snapshot-2026-09-25.db `
-  --allow-mobile-asset
-```
-
-## Локальная PostgreSQL (необязательно на этом этапе)
-
-После запуска Docker Desktop:
-
-```powershell
-if (-not (Test-Path .\backend\.env)) { Copy-Item .\backend\.env.example .\backend\.env }
-# В backend/.env задайте APP_DATA_MODE=postgres и надёжный POSTGRES_PASSWORD.
-docker compose -f .\infra\compose.yml up -d
-Set-Location .\backend
-.\.venv\Scripts\python.exe -m alembic upgrade head
-```
-
-PostgreSQL публикуется только на `127.0.0.1`, поэтому телефон к ней не
-подключается. Обычная остановка сохраняет данные:
-
-```powershell
-docker compose -f .\infra\compose.yml down
-```
-
-Не используйте `down -v`, если хотите сохранить локальную базу.
-
-## Проверки
-
-```powershell
-# Mobile
-Set-Location .\mobile
 npm run check
-npx expo-doctor@latest
-
-# Backend
-Set-Location ..\backend
-.\.venv\Scripts\python.exe -m pytest -q
-.\.venv\Scripts\ruff.exe check .
-.\.venv\Scripts\ruff.exe format --check .
-.\.venv\Scripts\mypy.exe app
-
-# Проверка встроенного каталога и шаблона будущего текстового пакета
-Set-Location ..
-.\backend\.venv\Scripts\python.exe .\backend\scripts\build_offline_catalog.py --check
-.\backend\.venv\Scripts\python.exe .\backend\scripts\validate_legal_package.py --self-test
-
-# Техническая проверка уже собранного снимка (не verified_text)
-.\backend\.venv\Scripts\python.exe .\backend\scripts\import_totopolis_snapshot.py `
-  --check `
-  --output .\mobile\assets\legal\ru-core-snapshot-2026-09-25.db `
-  --allow-mobile-asset
+npm run preview
 ```
 
-Перед коммитом проверьте, что секреты не отслеживаются:
+Предпросмотр откроется на `http://127.0.0.1:4173/`; остановить — `Ctrl+C`. Команда `check` проверяет TypeScript, тесты Worker, сборку PWA и service worker. Для проверки конфигурации Cloudflare без публикации: `npm run verify:cloudflare`.
 
-```powershell
-git status --ignored --short
-git ls-files | Select-String -Pattern '(^|/)(\.env|.*\.pem|.*\.key)$'
+## Публикация в Cloudflare Workers
+
+Репозиторий: [github.com/whi600/ur-proect](https://github.com/whi600/ur-proect). Для подключённой Git-сборки укажите:
+
+```text
+Корневая папка: / (корень репозитория)
+Команда сборки: npm ci && npm run build
+Команда публикации: npx wrangler deploy
 ```
 
-Сторонний источник и обязательное уведомление BSD-2-Clause описаны в
-[docs/third-party-notices.md](docs/third-party-notices.md). Технический
-снимок нельзя называть проверенной действующей правовой базой без отдельной
-сверки и юридического редакторского ревью.
+Файл [wrangler.jsonc](wrangler.jsonc) направляет статические запросы в `dist/`, а `/api/*` — в Worker. Не выбирайте папку `mobile`: её больше нет в репозитории. Доступность новой версии проверяется по `GET /api/assistant/status`: ответ должен содержать `revision`. Если его нет, Cloudflare ещё обслуживает старый выпуск; смотрите вкладку **Deployments**. Успешная сборка PWA сама по себе не подтверждает работоспособность внешнего API модели.
+
+При желании владелец Cloudflare может опубликовать вручную после входа через `npx wrangler login`, затем `npm run build` и `npm run deploy:cloudflare`. Вход и управление секретом выполняются только владельцем аккаунта.
+
+## Установка на телефон
+
+После публикации откройте HTTPS-адрес PWA на телефоне.
+
+- iPhone: Safari → «Поделиться» → «На экран Домой».
+- Android: Chrome → меню ⋮ → «Установить приложение» или «Добавить на главный экран».
+
+Это один и тот же сайт, не две отдельные сборки. Без сети доступны оболочка, каталог и ранее открытые страницы. Для всей библиотеки заранее нажмите «Сохранить все тексты» на главной по Wi-Fi; браузер может удалить кеш при нехватке места. ИИ без интернета не работает.
+
+## Важные ограничения
+
+Нет проверки юридической актуальности каждого документа, автоматического обновления редакций и поиска по текстам статей. Публичный помощник может расходовать баланс владельца API; ограничение запросов на один IP не заменяет денежный лимит у поставщика. Перед публичным применением нужны официальные источники, контроль версий законов и юридическая проверка качества ответов.

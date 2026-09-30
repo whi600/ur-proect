@@ -1,4 +1,4 @@
-import catalog from '../mobile/assets/legal/ru-core-catalog-v1.json' with { type: 'json' };
+import catalog from '../src/data/catalog.json' with { type: 'json' };
 
 const POLZA_URL = 'https://polza.ai/api/v1/chat/completions';
 const DEFAULT_MODEL = 'deepseek/deepseek-v4-flash';
@@ -9,10 +9,42 @@ const MAX_OUTPUT_TOKENS = 900;
 const API_REVISION = 'provider-fetch-v2';
 
 const STOPWORDS = new Set([
-  'для', 'как', 'мне', 'можно', 'надо', 'нужно', 'если', 'или', 'что', 'это',
-  'при', 'про', 'так', 'все', 'его', 'мои', 'моя', 'мое', 'мной', 'есть', 'быть',
-  'какие', 'какой', 'какая', 'когда', 'после', 'перед', 'статья', 'статьи',
-  'статью', 'закон', 'закона', 'закону', 'права', 'право', 'рф',
+  'для',
+  'как',
+  'мне',
+  'можно',
+  'надо',
+  'нужно',
+  'если',
+  'или',
+  'что',
+  'это',
+  'при',
+  'про',
+  'так',
+  'все',
+  'его',
+  'мои',
+  'моя',
+  'мое',
+  'мной',
+  'есть',
+  'быть',
+  'какие',
+  'какой',
+  'какая',
+  'когда',
+  'после',
+  'перед',
+  'статья',
+  'статьи',
+  'статью',
+  'закон',
+  'закона',
+  'закону',
+  'права',
+  'право',
+  'рф',
 ]);
 
 function json(data, status = 200) {
@@ -50,31 +82,41 @@ export function rankCatalog(question, limit = 5) {
     .map((document) => {
       const title = normalise(document.title);
       const terms = normalise(document.search_terms ?? '');
-      const details = normalise([
-        document.document_number ?? '',
-        document.category ?? '',
-        document.document_type ?? '',
-      ].join(' '));
+      const details = normalise(
+        [
+          document.document_number ?? '',
+          document.category ?? '',
+          document.document_type ?? '',
+        ].join(' '),
+      );
       const score = tokens.reduce((total, token) => {
         const variants = queryVariants(token);
-        return total
-          + (variants.some((variant) => title.includes(variant)) ? 5 : 0)
-          + (variants.some((variant) => terms.includes(variant)) ? 3 : 0)
-          + (variants.some((variant) => details.includes(variant)) ? 2 : 0);
+        return (
+          total +
+          (variants.some((variant) => title.includes(variant)) ? 5 : 0) +
+          (variants.some((variant) => terms.includes(variant)) ? 3 : 0) +
+          (variants.some((variant) => details.includes(variant)) ? 2 : 0)
+        );
       }, 0);
       return { document, score };
     })
     .filter(({ score }) => score > 0)
-    .sort((left, right) => right.score - left.score || left.document.title.localeCompare(right.document.title, 'ru'))
+    .sort(
+      (left, right) =>
+        right.score - left.score || left.document.title.localeCompare(right.document.title, 'ru'),
+    )
     .slice(0, limit)
     .map(({ document }) => document);
 }
 
 function buildMessages(question, asOfDate, circumstances, matches) {
   const references = matches.length
-    ? matches.map((document) =>
-        `- ${document.title} (${document.document_number ?? 'номер не указан'}), ID ${document.id}`,
-      ).join('\n')
+    ? matches
+        .map(
+          (document) =>
+            `- ${document.title} (${document.document_number ?? 'номер не указан'}), ID ${document.id}`,
+        )
+        .join('\n')
     : 'Совпадений в каталоге реквизитов не найдено.';
 
   return [
@@ -147,10 +189,9 @@ export async function handleRequest(request, env, fetchImpl = fetch) {
     return json({ error: 'Неверный формат запроса.' }, 400);
   }
   const question = typeof payload?.question === 'string' ? payload.question.trim() : '';
-  const circumstances = typeof payload?.circumstances === 'string'
-    ? payload.circumstances.trim() : null;
-  const asOfDate = typeof payload?.as_of_date === 'string'
-    ? payload.as_of_date.trim() : null;
+  const circumstances =
+    typeof payload?.circumstances === 'string' ? payload.circumstances.trim() : null;
+  const asOfDate = typeof payload?.as_of_date === 'string' ? payload.as_of_date.trim() : null;
   if (question.length < 3 || question.length > MAX_QUESTION_LENGTH) {
     return json({ error: 'Вопрос должен содержать от 3 до 2000 символов.' }, 400);
   }
@@ -179,11 +220,12 @@ export async function handleRequest(request, env, fetchImpl = fetch) {
       signal: AbortSignal.timeout(30_000),
     });
   } catch (error) {
-    const code = error?.name === 'TimeoutError' || error?.name === 'AbortError'
-      ? 'provider_timeout'
-      : typeof fetchImpl !== 'function'
-        ? 'worker_fetch_configuration'
-        : 'provider_connection';
+    const code =
+      error?.name === 'TimeoutError' || error?.name === 'AbortError'
+        ? 'provider_timeout'
+        : typeof fetchImpl !== 'function'
+          ? 'worker_fetch_configuration'
+          : 'provider_connection';
     return json({ error: 'Поставщик ИИ не ответил. Попробуйте позже.', code }, 502);
   }
   if (!providerResponse.ok) {
@@ -204,7 +246,8 @@ export async function handleRequest(request, env, fetchImpl = fetch) {
     mode: 'live',
     answer: answer.trim(),
     sources: matches.map(citation),
-    disclaimer: 'Ответ ИИ — предварительная учебная подсказка. Связанные карточки не содержат текст статей и подтверждённые редакции. Интернет-поиск пока не подключён; проверяйте нормы по официальному источнику на нужную дату.',
+    disclaimer:
+      'Ответ ИИ — предварительная учебная подсказка. Связанные карточки не содержат текст статей и подтверждённые редакции. Интернет-поиск пока не подключён; проверяйте нормы по официальному источнику на нужную дату.',
   });
 }
 

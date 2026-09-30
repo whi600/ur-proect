@@ -14,35 +14,21 @@ Thumbs.db
 *.pem
 *.key
 
-# Node / Expo
+# Node / PWA
 node_modules/
-mobile/node_modules/
-mobile/.expo/
-mobile/dist/
-mobile/web-build/
-mobile/npm-debug.log*
-
-# Python
-backend/.venv/
-backend/__pycache__/
-backend/**/*.py[cod]
-backend/.pytest_cache/
-backend/.mypy_cache/
-backend/.ruff_cache/
-backend/*.egg-info/
+dist/
+npm-debug.log*
 
 # Local database and generated data
 *.sqlite3
 *.db
-# This small, versioned asset is bundled with the application. At this stage it
-# contains only catalogue metadata. Larger third-party source snapshots are
-# intentionally kept out of Git and are built locally from a pinned source.
-!mobile/assets/legal/
-!mobile/assets/legal/ru-core-catalog-v1.db
-mobile/assets/legal/ru-*-snapshot-*.db
 .cache/
-backend/data/staging/
-infra/postgres-data/
+.ruff_cache/
+
+# Local leftovers from the previous Expo/FastAPI layout are not part of the PWA.
+mobile/
+backend/
+infra/
 
 # Test / coverage artifacts
 coverage/

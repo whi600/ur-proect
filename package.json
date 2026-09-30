@@ -1,14 +1,32 @@
 {
-  "name": "ur-proect",
+  "name": "pravo-orbita-pwa",
   "private": true,
+  "version": "1.0.0",
+  "type": "module",
   "scripts": {
-    "build": "npm run build:pwa",
-    "build:pwa": "npm --prefix mobile ci && npm --prefix mobile run build:pwa",
+    "dev": "vite",
+    "build": "vite build && node scripts/build-sw.mjs",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test worker/*.test.mjs",
+    "check": "npm run typecheck && npm test && npm run build",
+    "format": "prettier --write src worker index.html vite.config.ts tsconfig.json workbox-config.cjs",
+    "format:check": "prettier --check src worker index.html vite.config.ts tsconfig.json workbox-config.cjs",
     "deploy:cloudflare": "wrangler deploy",
-    "verify:cloudflare": "wrangler deploy --dry-run",
-    "test:worker": "node --test worker/*.test.mjs"
+    "verify:cloudflare": "wrangler deploy --dry-run"
+  },
+  "dependencies": {
+    "react": "19.2.3",
+    "react-dom": "19.2.3"
   },
   "devDependencies": {
-    "wrangler": "4.142.0"
+    "@types/react": "19.2.2",
+    "@types/react-dom": "19.2.3",
+    "@vitejs/plugin-react": "6.1.1",
+    "prettier": "3.9.8",
+    "typescript": "6.0.3",
+    "vite": "8.3.1",
+    "workbox-build": "7.4.1",
+    "wrangler": "4.144.0"
   }
 }

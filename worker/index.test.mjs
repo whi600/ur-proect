@@ -27,7 +27,9 @@ test('catalog ranking selects a relevant document, but only metadata', () => {
 });
 
 test('worker refuses paid calls without server key and a rate limiter', async () => {
-  const noSecrets = await handleRequest(ask(), {}, () => { throw Error('must not call provider'); });
+  const noSecrets = await handleRequest(ask(), {}, () => {
+    throw Error('must not call provider');
+  });
   assert.equal(noSecrets.status, 503);
 
   const noLimit = await handleRequest(ask(), { POLZA_API_KEY: 'provider-secret' }, () => {
@@ -60,10 +62,13 @@ test('worker sends bounded context to model and labels returned document cards',
   let outgoing;
   const response = await handleRequest(ask(), environment(), async (url, init) => {
     outgoing = { url, init };
-    return new Response(JSON.stringify({ choices: [{ message: { content: 'Предварительный разбор.' } }] }), {
-      status: 200,
-      headers: { 'Content-Type': 'application/json' },
-    });
+    return new Response(
+      JSON.stringify({ choices: [{ message: { content: 'Предварительный разбор.' } }] }),
+      {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      },
+    );
   });
   const result = await response.json();
   const body = JSON.parse(outgoing.init.body);
@@ -95,8 +100,10 @@ test('Cloudflare execution context is not mistaken for the provider fetch functi
 });
 
 test('provider failures do not leak its response or server secrets', async () => {
-  const response = await handleRequest(ask(), environment(), async () =>
-    new Response('secret provider diagnostics', { status: 402 }),
+  const response = await handleRequest(
+    ask(),
+    environment(),
+    async () => new Response('secret provider diagnostics', { status: 402 }),
   );
   const body = await response.text();
   assert.equal(response.status, 502);
