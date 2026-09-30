@@ -199,4 +199,14 @@ export async function handleRequest(request, env, fetchImpl = fetch) {
   });
 }
 
-export default { fetch: handleRequest };
+// Cloudflare calls fetch(request, env, ctx). Keep its ExecutionContext separate
+// from the injectable network function used by handleRequest in unit tests.
+export function createWorker(fetchImpl = fetch) {
+  return {
+    fetch(request, env, _ctx) {
+      return handleRequest(request, env, fetchImpl);
+    },
+  };
+}
+
+export default createWorker();

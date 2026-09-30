@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { handleRequest, rankCatalog } from './index.mjs';
+import { createWorker, handleRequest, rankCatalog } from './index.mjs';
 
 const endpoint = 'https://example.workers.dev/api/assistant/ask';
 
@@ -78,6 +78,20 @@ test('worker sends bounded context to model and labels returned document cards',
   assert.equal(result.sources[0].document_id, 'ru-consumer-protection-law');
   assert.match(result.sources[0].fragment_label, /не статья/);
   assert.doesNotMatch(JSON.stringify(result), /provider-secret/);
+});
+
+test('Cloudflare execution context is not mistaken for the provider fetch function', async () => {
+  let providerCalls = 0;
+  const worker = createWorker(async () => {
+    providerCalls += 1;
+    return new Response(JSON.stringify({ choices: [{ message: { content: 'Ответ модели.' } }] }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  });
+  const response = await worker.fetch(ask(), environment(), { waitUntil() {} });
+  assert.equal(response.status, 200);
+  assert.equal(providerCalls, 1);
 });
 
 test('provider failures do not leak its response or server secrets', async () => {
