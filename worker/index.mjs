@@ -5,8 +5,8 @@ const DEFAULT_MODEL = 'deepseek/deepseek-v4-flash';
 const MAX_QUESTION_LENGTH = 2_000;
 const MAX_CIRCUMSTANCES_LENGTH = 2_000;
 const MAX_BODY_LENGTH = 8_000;
-const MAX_OUTPUT_TOKENS = 900;
-const API_REVISION = 'provider-fetch-v2';
+const MAX_OUTPUT_TOKENS = 600;
+const API_REVISION = 'streaming-v3';
 
 const STOPWORDS = new Set([
   'для',
@@ -123,7 +123,7 @@ function buildMessages(question, asOfDate, circumstances, matches) {
     {
       role: 'system',
       content: [
-        'Ты учебный помощник по российскому праву. Отвечай по-русски, ясно и кратко.',
+        'Ты учебный помощник по российскому праву. Отвечай по-русски, ясно и кратко, обычно не более 150 слов.',
         'Выполни предварительный разбор задачи: факты, возможные нормы, что проверить.',
         'Переданные карточки содержат только реквизиты документов, не тексты статей, не подтверждённые редакции.',
         'Не выдумывай номера статей, точные цитаты, судебную практику, даты редакций или ссылки.',
@@ -153,6 +153,51 @@ function citation(document) {
     source_url: null,
     is_demo: false,
   };
+}
+
+function answerContext(matches) {
+  return {
+    sources: matches.map(citation),
+    disclaimer:
+      'Ответ ИИ — предварительная учебная подсказка. Связанные карточки не содержат текст статей и подтверждённые редакции. Интернет-поиск пока не подключён; проверяйте нормы по официальному источнику на нужную дату.',
+  };
+}
+
+function streamProviderResponse(providerResponse, matches) {
+  const upstream = providerResponse.body?.getReader();
+  if (!upstream) return json({ error: 'Поставщик ИИ не вернул поток ответа.' }, 502);
+
+  const encoder = new TextEncoder();
+  let sentMetadata = false;
+  const body = new ReadableStream({
+    async pull(controller) {
+      if (!sentMetadata) {
+        controller.enqueue(
+          encoder.encode(`event: meta\ndata: ${JSON.stringify(answerContext(matches))}\n\n`),
+        );
+        sentMetadata = true;
+        return;
+      }
+      try {
+        const { done, value } = await upstream.read();
+        if (done) controller.close();
+        else controller.enqueue(value);
+      } catch {
+        controller.error(new Error('Поток поставщика прервался.'));
+      }
+    },
+    cancel(reason) {
+      return upstream.cancel(reason);
+    },
+  });
+
+  return new Response(body, {
+    headers: {
+      'Content-Type': 'text/event-stream; charset=utf-8',
+      'Cache-Control': 'no-store',
+      'X-Content-Type-Options': 'nosniff',
+    },
+  });
 }
 
 export async function handleRequest(request, env, fetchImpl = fetch) {
@@ -203,6 +248,7 @@ export async function handleRequest(request, env, fetchImpl = fetch) {
   }
 
   const matches = rankCatalog(question);
+  const streaming = request.headers.get('Accept')?.includes('text/event-stream') ?? false;
   let providerResponse;
   try {
     providerResponse = await fetchImpl(POLZA_URL, {
@@ -215,7 +261,7 @@ export async function handleRequest(request, env, fetchImpl = fetch) {
         model: env.AI_MODEL || DEFAULT_MODEL,
         messages: buildMessages(question, asOfDate, circumstances, matches),
         max_tokens: MAX_OUTPUT_TOKENS,
-        stream: false,
+        stream: streaming,
       }),
       signal: AbortSignal.timeout(30_000),
     });
@@ -231,6 +277,7 @@ export async function handleRequest(request, env, fetchImpl = fetch) {
   if (!providerResponse.ok) {
     return json({ error: `Поставщик ИИ вернул ошибку ${providerResponse.status}.` }, 502);
   }
+  if (streaming) return streamProviderResponse(providerResponse, matches);
   let providerData;
   try {
     providerData = await providerResponse.json();
@@ -245,9 +292,7 @@ export async function handleRequest(request, env, fetchImpl = fetch) {
   return json({
     mode: 'live',
     answer: answer.trim(),
-    sources: matches.map(citation),
-    disclaimer:
-      'Ответ ИИ — предварительная учебная подсказка. Связанные карточки не содержат текст статей и подтверждённые редакции. Интернет-поиск пока не подключён; проверяйте нормы по официальному источнику на нужную дату.',
+    ...answerContext(matches),
   });
 }
 

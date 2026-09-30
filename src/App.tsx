@@ -6,6 +6,7 @@ import {
   loadSourceSnapshotFragmentPage,
 } from './lib/catalog';
 import { downloadAllSourceSnapshotPages, SOURCE_SNAPSHOT_WEB_PAGE_COUNT } from './lib/texts';
+import { readAssistantStream } from './lib/assistant-stream';
 import type {
   AssistantAnswer,
   DocumentDetail,
@@ -411,7 +412,7 @@ function Assistant() {
   const [validation, setValidation] = useState('');
   const bottom = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    bottom.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
+    bottom.current?.scrollIntoView({ behavior: pending ? 'auto' : 'smooth', block: 'end' });
   }, [messages, pending]);
   const submit = async (event: FormEvent) => {
     event.preventDefault();
@@ -423,48 +424,80 @@ function Assistant() {
     if (pending) return;
     setValidation('');
     setQuestion('');
-    setMessages((previous) => [...previous, { id: Date.now(), role: 'user', text }]);
+    const userId = Date.now();
+    const answerId = userId + 1;
+    setMessages((previous) => [
+      ...previous,
+      { id: userId, role: 'user', text },
+      { id: answerId, role: 'assistant', text: 'Готовим ответ…' },
+    ]);
     setPending(true);
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), 35_000);
+    let frame: number | null = null;
+    let latestText = '';
+    const showProgress = (value: string) => {
+      latestText = value;
+      if (frame !== null) return;
+      frame = window.requestAnimationFrame(() => {
+        frame = null;
+        setMessages((previous) =>
+          previous.map((message) =>
+            message.id === answerId ? { ...message, text: latestText } : message,
+          ),
+        );
+      });
+    };
     try {
-      const controller = new AbortController();
-      const timeout = window.setTimeout(() => controller.abort(), 35_000);
-      try {
-        const response = await fetch('/api/assistant/ask', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ question: text }),
-          signal: controller.signal,
-        });
-        if (!response.headers.get('Content-Type')?.includes('application/json')) {
-          throw new Error('ИИ доступен на опубликованном адресе PWA через Cloudflare Worker.');
-        }
-        const data = (await response.json()) as AssistantAnswer & { error?: string };
-        if (!response.ok)
-          throw new Error(data.error ?? `Помощник недоступен (ошибка ${response.status}).`);
-        if (data.mode !== 'live' || !data.answer)
-          throw new Error('Сервер вернул неожиданный ответ.');
-        setMessages((previous) => [
-          ...previous,
-          { id: Date.now() + 1, role: 'assistant', text: data.answer, answer: data },
-        ]);
-      } finally {
-        window.clearTimeout(timeout);
+      const response = await fetch('/api/assistant/ask', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
+        body: JSON.stringify({ question: text }),
+        signal: controller.signal,
+      });
+      const contentType = response.headers.get('Content-Type') ?? '';
+      if (!response.ok) {
+        const data = contentType.includes('application/json')
+          ? ((await response.json()) as { error?: string })
+          : null;
+        throw new Error(data?.error ?? `Помощник недоступен (ошибка ${response.status}).`);
       }
+      let data: AssistantAnswer;
+      if (contentType.includes('text/event-stream')) {
+        data = await readAssistantStream(response, showProgress);
+      } else if (contentType.includes('application/json')) {
+        data = (await response.json()) as AssistantAnswer;
+      } else {
+        throw new Error('ИИ доступен на опубликованном адресе PWA через Cloudflare Worker.');
+      }
+      if (data.mode !== 'live' || !data.answer) {
+        throw new Error('Сервер вернул неожиданный ответ.');
+      }
+      setMessages((previous) =>
+        previous.map((message) =>
+          message.id === answerId ? { ...message, text: data.answer, answer: data } : message,
+        ),
+      );
     } catch (cause) {
-      setMessages((previous) => [
-        ...previous,
-        {
-          id: Date.now() + 2,
-          role: 'error',
-          text:
-            cause instanceof Error && cause.name === 'AbortError'
-              ? 'Помощник не ответил за 35 секунд.'
-              : cause instanceof Error
-                ? cause.message
-                : 'Не удалось получить ответ.',
-        },
-      ]);
+      setMessages((previous) =>
+        previous.map((message) =>
+          message.id === answerId
+            ? {
+                id: answerId,
+                role: 'error' as const,
+                text:
+                  cause instanceof Error && cause.name === 'AbortError'
+                    ? 'Помощник не ответил за 35 секунд.'
+                    : cause instanceof Error
+                      ? cause.message
+                      : 'Не удалось получить ответ.',
+              }
+            : message,
+        ),
+      );
     } finally {
+      window.clearTimeout(timeout);
+      if (frame !== null) window.cancelAnimationFrame(frame);
       setPending(false);
     }
   };
@@ -472,10 +505,15 @@ function Assistant() {
     <div className="assistant-page">
       <header className="assistant-header">
         <h1>Помощник</h1>
-        <p>Задайте вопрос по документам</p>
+        <p>Задайте вопрос своими словами</p>
       </header>
       <div className="chat-messages" aria-live="polite">
-        {!messages.length && <p className="chat-empty">Напишите свой вопрос в поле ниже.</p>}
+        {!messages.length && (
+          <p className="chat-empty">
+            Помогу подобрать документы, разобраться в юридической задаче и понять, какие статьи
+            стоит проверить.
+          </p>
+        )}
         {messages.map((message) => (
           <div className={`chat-bubble ${message.role}`} key={message.id}>
             <p>{message.text}</p>
@@ -495,7 +533,6 @@ function Assistant() {
             {message.answer && <small>{message.answer.disclaimer}</small>}
           </div>
         ))}
-        {pending && <div className="chat-bubble assistant">Готовим ответ…</div>}
         <div ref={bottom} />
       </div>
       <form className="chat-composer" onSubmit={(event) => void submit(event)}>

@@ -42,8 +42,8 @@ test('status requires only the server key and rate limiter', async () => {
   const statusRequest = new Request('https://example.workers.dev/api/assistant/status');
   const off = await handleRequest(statusRequest, {});
   const on = await handleRequest(statusRequest, environment());
-  assert.deepEqual(await off.json(), { configured: false, revision: 'provider-fetch-v2' });
-  assert.deepEqual(await on.json(), { configured: true, revision: 'provider-fetch-v2' });
+  assert.deepEqual(await off.json(), { configured: false, revision: 'streaming-v3' });
+  assert.deepEqual(await on.json(), { configured: true, revision: 'streaming-v3' });
 });
 
 test('worker validates and rate limits requests before calling model', async () => {
@@ -77,12 +77,50 @@ test('worker sends bounded context to model and labels returned document cards',
   assert.equal(outgoing.url, 'https://polza.ai/api/v1/chat/completions');
   assert.equal(outgoing.init.headers.Authorization, 'Bearer provider-secret');
   assert.equal(body.model, 'deepseek/deepseek-v4-flash');
-  assert.equal(body.max_tokens, 900);
+  assert.equal(body.max_tokens, 600);
   assert.match(body.messages[0].content, /нет доступа к интернету/);
   assert.equal(result.mode, 'live');
   assert.equal(result.sources[0].document_id, 'ru-consumer-protection-law');
   assert.match(result.sources[0].fragment_label, /не статья/);
   assert.doesNotMatch(JSON.stringify(result), /provider-secret/);
+});
+
+test('worker forwards model chunks immediately after catalog metadata', async () => {
+  let outgoing;
+  const streamingRequest = ask();
+  streamingRequest.headers.set('Accept', 'text/event-stream');
+  const encoder = new TextEncoder();
+  let releaseSecondChunk;
+  const providerBody = new ReadableStream({
+    start(controller) {
+      controller.enqueue(encoder.encode('data: {"choices":[{"delta":{"content":"Первый "}}]}\n\n'));
+      releaseSecondChunk = () => {
+        controller.enqueue(
+          encoder.encode('data: {"choices":[{"delta":{"content":"фрагмент."}}]}\n\n'),
+        );
+        controller.enqueue(encoder.encode('data: [DONE]\n\n'));
+        controller.close();
+      };
+    },
+  });
+  const response = await handleRequest(streamingRequest, environment(), async (_url, init) => {
+    outgoing = JSON.parse(init.body);
+    return new Response(providerBody, {
+      headers: { 'Content-Type': 'text/event-stream' },
+    });
+  });
+  assert.equal(outgoing.stream, true);
+  assert.match(response.headers.get('Content-Type'), /text\/event-stream/);
+  const reader = response.body.getReader();
+  const first = new TextDecoder().decode((await reader.read()).value);
+  const second = new TextDecoder().decode((await reader.read()).value);
+  assert.match(first, /event: meta/);
+  assert.match(first, /ru-consumer-protection-law/);
+  assert.match(second, /Первый/);
+  releaseSecondChunk();
+  const remaining = new TextDecoder().decode((await reader.read()).value);
+  assert.match(remaining, /фрагмент/);
+  await reader.cancel();
 });
 
 test('Cloudflare execution context is not mistaken for the provider fetch function', async () => {
