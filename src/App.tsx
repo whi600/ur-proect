@@ -7,6 +7,7 @@ import {
 } from './lib/catalog';
 import { downloadAllSourceSnapshotPages, SOURCE_SNAPSHOT_WEB_PAGE_COUNT } from './lib/texts';
 import { readAssistantStream } from './lib/assistant-stream';
+import { buildChatHistory, recentConversationMessages } from './lib/chat-memory';
 import type {
   AssistantAnswer,
   DocumentDetail,
@@ -15,6 +16,7 @@ import type {
 } from './types/legal';
 
 const FAVORITES_KEY = '@pravo-orbita/favorite-document-ids/v1';
+const CHAT_KEY = '@pravo-orbita/assistant-chat/v1';
 
 function readFavorites(): string[] {
   try {
@@ -405,12 +407,42 @@ type ChatMessage = {
   answer?: AssistantAnswer;
 };
 
+function readChatMessages(): ChatMessage[] {
+  try {
+    const saved = JSON.parse(localStorage.getItem(CHAT_KEY) ?? '[]');
+    if (!Array.isArray(saved)) return [];
+    const valid = saved.filter(
+      (message): message is ChatMessage =>
+        typeof message?.id === 'number' &&
+        typeof message?.text === 'string' &&
+        (message.role === 'user' ||
+          (message.role === 'assistant' &&
+            typeof message.answer?.answer === 'string' &&
+            Array.isArray(message.answer?.sources) &&
+            typeof message.answer?.disclaimer === 'string')),
+    );
+    return recentConversationMessages(valid);
+  } catch {
+    return [];
+  }
+}
+
 function Assistant() {
   const [question, setQuestion] = useState('');
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [messages, setMessages] = useState<ChatMessage[]>(readChatMessages);
   const [pending, setPending] = useState(false);
   const [validation, setValidation] = useState('');
   const bottom = useRef<HTMLDivElement>(null);
+  const activeRequest = useRef<AbortController | null>(null);
+  const stoppedByUser = useRef(false);
+  useEffect(() => {
+    if (pending) return;
+    try {
+      localStorage.setItem(CHAT_KEY, JSON.stringify(recentConversationMessages(messages)));
+    } catch {
+      // The chat still works if the browser disables local storage.
+    }
+  }, [messages, pending]);
   useEffect(() => {
     bottom.current?.scrollIntoView({ behavior: pending ? 'auto' : 'smooth', block: 'end' });
   }, [messages, pending]);
@@ -422,6 +454,7 @@ function Assistant() {
       return;
     }
     if (pending) return;
+    const history = buildChatHistory(messages);
     setValidation('');
     setQuestion('');
     const userId = Date.now();
@@ -433,7 +466,9 @@ function Assistant() {
     ]);
     setPending(true);
     const controller = new AbortController();
-    const timeout = window.setTimeout(() => controller.abort(), 35_000);
+    activeRequest.current = controller;
+    stoppedByUser.current = false;
+    const timeout = window.setTimeout(() => controller.abort(), 610_000);
     let frame: number | null = null;
     let latestText = '';
     const showProgress = (value: string) => {
@@ -452,7 +487,7 @@ function Assistant() {
       const response = await fetch('/api/assistant/ask', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
-        body: JSON.stringify({ question: text }),
+        body: JSON.stringify({ question: text, history }),
         signal: controller.signal,
       });
       const contentType = response.headers.get('Content-Type') ?? '';
@@ -480,32 +515,61 @@ function Assistant() {
       );
     } catch (cause) {
       setMessages((previous) =>
-        previous.map((message) =>
-          message.id === answerId
-            ? {
-                id: answerId,
-                role: 'error' as const,
-                text:
-                  cause instanceof Error && cause.name === 'AbortError'
-                    ? 'Помощник не ответил за 35 секунд.'
-                    : cause instanceof Error
-                      ? cause.message
-                      : 'Не удалось получить ответ.',
-              }
-            : message,
-        ),
+        previous.map((message) => {
+          if (message.id !== answerId) return message;
+          if (stoppedByUser.current && latestText) {
+            return {
+              id: answerId,
+              role: 'error' as const,
+              text: `${latestText}\n\nОтвет остановлен и может быть неполным.`,
+            };
+          }
+          return {
+            id: answerId,
+            role: 'error' as const,
+            text: stoppedByUser.current
+              ? 'Ответ остановлен.'
+              : cause instanceof Error && cause.name === 'AbortError'
+                ? 'Помощник не закончил ответ за десять минут.'
+                : cause instanceof Error
+                  ? cause.message
+                  : 'Не удалось получить ответ.',
+          };
+        }),
       );
     } finally {
       window.clearTimeout(timeout);
       if (frame !== null) window.cancelAnimationFrame(frame);
+      activeRequest.current = null;
       setPending(false);
     }
   };
   return (
     <div className="assistant-page">
       <header className="assistant-header">
-        <h1>Помощник</h1>
-        <p>Задайте вопрос своими словами</p>
+        <div>
+          <h1>Помощник</h1>
+          <p>Задайте вопрос своими словами</p>
+        </div>
+        {messages.length > 0 && (
+          <button
+            className="secondary-button new-chat-button"
+            type="button"
+            disabled={pending}
+            onClick={() => {
+              try {
+                localStorage.removeItem(CHAT_KEY);
+              } catch {
+                // The in-memory chat can still be cleared.
+              }
+              setMessages([]);
+              setQuestion('');
+              setValidation('');
+            }}
+          >
+            Новый чат
+          </button>
+        )}
       </header>
       <div className="chat-messages" aria-live="polite">
         {!messages.length && (
@@ -552,9 +616,22 @@ function Assistant() {
             }
           }}
         />
-        <button type="submit" disabled={pending} aria-label="Отправить вопрос">
-          ↑
-        </button>
+        {pending ? (
+          <button
+            type="button"
+            aria-label="Остановить ответ"
+            onClick={() => {
+              stoppedByUser.current = true;
+              activeRequest.current?.abort();
+            }}
+          >
+            ■
+          </button>
+        ) : (
+          <button type="submit" aria-label="Отправить вопрос">
+            ↑
+          </button>
+        )}
         {validation && (
           <span className="validation" role="alert">
             {validation}

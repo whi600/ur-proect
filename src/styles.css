@@ -486,6 +486,12 @@ textarea::placeholder {
   margin: 0 auto;
   padding: 20px 24px 12px;
 }
+.assistant-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+}
 .assistant-header h1 {
   font-size: 30px;
   margin: 0 0 4px;
@@ -493,6 +499,14 @@ textarea::placeholder {
 .assistant-header p {
   color: #626a65;
   margin: 0;
+}
+.new-chat-button {
+  flex: none;
+  padding: 8px 12px;
+  font-size: 13px;
+}
+.new-chat-button:disabled {
+  opacity: 0.5;
 }
 .chat-messages {
   display: flex;

@@ -14,6 +14,7 @@ export async function readAssistantStream(
   let eventName = '';
   let dataLines: string[] = [];
   let answer = '';
+  let reachedLimit = false;
   const state: { metadata?: StreamMetadata } = {};
   let completed = false;
 
@@ -44,6 +45,7 @@ export async function readAssistantStream(
     } else if (eventName === 'error' || payload?.error) {
       throw new Error('Ответ прервался. Попробуйте ещё раз.');
     } else {
+      if (payload?.choices?.[0]?.finish_reason === 'length') reachedLimit = true;
       const delta = payload?.choices?.[0]?.delta?.content;
       if (typeof delta === 'string' && delta) {
         answer += delta;
@@ -87,5 +89,11 @@ export async function readAssistantStream(
   if (!completed || !answer.trim() || !state.metadata) {
     throw new Error('Ответ прервался. Попробуйте ещё раз.');
   }
-  return { mode: 'live', answer: answer.trim(), ...state.metadata };
+  return {
+    mode: 'live',
+    answer: reachedLimit
+      ? `${answer.trim()}\n\nОтвет достиг максимальной длины и может быть неполным.`
+      : answer.trim(),
+    ...state.metadata,
+  };
 }

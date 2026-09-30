@@ -47,6 +47,17 @@ test('browser stream parser rejects incomplete answers', async () => {
   );
 });
 
+test('browser marks answers cut off by the model limit', async () => {
+  const response = chunkedResponse([
+    'event: meta\ndata: {"sources":[],"disclaimer":"Проверяйте закон."}\n\n',
+    'data: {"choices":[{"delta":{"content":"Начало ответа"}}]}\n\n',
+    'data: {"choices":[{"delta":{},"finish_reason":"length"}]}\n\n',
+    'data: [DONE]\n\n',
+  ]);
+  const result = await readAssistantStream(response, () => {});
+  assert.match(result.answer, /может быть неполным/);
+});
+
 test('browser stream parser does not expose provider error details', async () => {
   const response = chunkedResponse(['data: {"error":"private provider diagnostics"}\n\n']);
   await assert.rejects(
